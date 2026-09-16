@@ -4,53 +4,131 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
   <title>JARVIS</title>
+  <script>
+    (function() {
+      try {
+        var _win = typeof window !== 'undefined' ? window : typeof globalThis !== 'undefined' ? globalThis : this;
+        if (!_win) return;
+
+        // Global uncaught error suppressor for external injected scripts trying to write to fetch
+        var _suppressFetchErr = function(e) {
+          var msg = (e && (e.message || (e.error && e.error.message))) || '';
+          if (typeof msg === 'string' && msg.indexOf('fetch') !== -1 && msg.indexOf('only a getter') !== -1) {
+            if (e.preventDefault) e.preventDefault();
+            if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+            return true;
+          }
+        };
+        _win.addEventListener('error', _suppressFetchErr, true);
+
+        var _prevOnError = _win.onerror;
+        _win.onerror = function(msg, url, line, col, err) {
+          if (typeof msg === 'string' && msg.indexOf('fetch') !== -1 && msg.indexOf('only a getter') !== -1) {
+            return true;
+          }
+          if (_prevOnError) return _prevOnError.apply(this, arguments);
+        };
+
+        var _nativeFetch = _win.fetch;
+        var _curFetch = function() {
+          var fn = _nativeFetch || window.fetch;
+          return fn.apply(window, arguments);
+        };
+
+        // Fix on window, Window.prototype, and any prototypes in chain so setter is available
+        var targets = [_win];
+        if (typeof Window !== 'undefined' && Window.prototype) targets.push(Window.prototype);
+        try {
+          var p = Object.getPrototypeOf(_win);
+          while (p && p !== Object.prototype) {
+            targets.push(p);
+            p = Object.getPrototypeOf(p);
+          }
+        } catch (_) {}
+
+        for (var i = 0; i < targets.length; i++) {
+          try {
+            Object.defineProperty(targets[i], 'fetch', {
+              configurable: true,
+              enumerable: true,
+              get: function() { return _curFetch; },
+              set: function(fn) {
+                if (typeof fn === 'function') {
+                  _curFetch = fn;
+                  _nativeFetch = fn;
+                }
+              }
+            });
+          } catch (_) {}
+        }
+      } catch (_) {}
+    })();
+  </script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
-      --bg:     #07090f;
-      --card:   rgba(255,255,255,0.04);
-      --border: rgba(255,255,255,0.08);
-      --accent: #6366f1;
-      --adim:   rgba(99,102,241,0.15);
-      --text:   #dde3ed;
-      --muted:  #5e6a7e;
+      --bg:     #020617;
+      --card:   rgba(2, 12, 34, 0.82);
+      --border: rgba(0, 180, 255, 0.24);
+      --accent: #00d2ff;
+      --accent-deep: #0066ff;
+      --adim:   rgba(0, 102, 255, 0.16);
+      --text:   #e0f2fe;
+      --muted:  #64748b;
     }
     html, body {
       height: 100%;
-      background: var(--bg);
+      background: radial-gradient(circle at 50% 45%, #051937 0%, #020617 80%);
       color: var(--text);
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
       display: flex;
       align-items: center;
       justify-content: center;
+      overflow: hidden;
+      position: relative;
+    }
+    #login-bg-canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 0;
     }
     .card {
-      width: 340px;
-      padding: 44px 36px;
+      position: relative;
+      z-index: 1;
+      width: 350px;
+      padding: 44px 34px;
       background: var(--card);
       border: 1px solid var(--border);
-      border-radius: 22px;
+      border-radius: 24px;
       text-align: center;
+      box-shadow: 0 16px 48px rgba(0, 50, 150, 0.35), 0 0 32px rgba(0, 210, 255, 0.12);
+      backdrop-filter: blur(14px);
     }
     .logo {
       font-size: 28px;
       font-weight: 700;
       letter-spacing: 10px;
       margin-bottom: 6px;
+      text-shadow: 0 0 16px rgba(0, 210, 255, 0.4);
     }
-    .logo em { color: var(--accent); font-style: normal; }
+    .logo em { color: var(--accent); font-style: normal; text-shadow: 0 0 20px #00d2ff; }
     .sub {
       font-size: 11px;
-      color: var(--muted);
+      color: #7dd3fc;
       letter-spacing: 3px;
       text-transform: uppercase;
       margin-bottom: 10px;
+      opacity: 0.8;
     }
     .hint {
       font-size: 12px;
       color: var(--muted);
       line-height: 1.55;
-      margin-bottom: 28px;
+      margin-bottom: 24px;
     }
     .key-wrap {
       position: relative;
@@ -59,7 +137,7 @@
     .key-input {
       width: 100%;
       padding: 18px 14px;
-      background: rgba(255,255,255,0.05);
+      background: rgba(0, 40, 100, 0.25);
       border: 1.5px solid var(--border);
       border-radius: 14px;
       color: var(--text);
@@ -72,16 +150,17 @@
       outline: none;
       transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
       caret-color: var(--accent);
+      box-shadow: inset 0 2px 8px rgba(0,0,0,0.4);
     }
     .key-input::placeholder {
-      color: rgba(94,106,126,0.5);
+      color: rgba(100,116,139,0.5);
       letter-spacing: 6px;
       font-size: 20px;
     }
     .key-input:focus {
       border-color: var(--accent);
       background: var(--adim);
-      box-shadow: 0 0 0 3px rgba(99,102,241,0.12);
+      box-shadow: 0 0 20px rgba(0, 210, 255, 0.25);
     }
     .err {
       font-size: 12px;
@@ -92,7 +171,7 @@
     .btn {
       width: 100%;
       padding: 14px;
-      background: var(--accent);
+      background: linear-gradient(135deg, #0066ff, #00d2ff);
       color: #fff;
       font-size: 12px;
       font-weight: 700;
@@ -100,9 +179,10 @@
       border: none;
       border-radius: 12px;
       cursor: pointer;
-      transition: opacity 0.15s, transform 0.1s;
+      box-shadow: 0 0 20px rgba(0, 150, 255, 0.35);
+      transition: opacity 0.15s, transform 0.1s, box-shadow 0.2s;
     }
-    .btn:hover  { opacity: 0.88; }
+    .btn:hover  { opacity: 0.92; box-shadow: 0 0 28px rgba(0, 210, 255, 0.5); }
     .btn:active { transform: scale(0.98); }
     @keyframes shake {
       0%,100% { transform: translateX(0); }
@@ -118,7 +198,8 @@
       text-align: left;
     }
     .voice-note code {
-      background: rgba(255,255,255,0.07);
+      background: rgba(0, 180, 255, 0.12);
+      color: #7dd3fc;
       padding: 1px 4px;
       border-radius: 3px;
       font-family: 'Courier New', monospace;
@@ -133,14 +214,21 @@
   </style>
 </head>
 <body>
+  <canvas id="login-bg-canvas"></canvas>
   <div class="card" id="card">
     <div class="logo"><em>J</em>ARVIS</div>
     <div class="sub">Remote Access</div>
+    <div class="clock-hud" id="login-clock" style="display:inline-flex;align-items:center;gap:6px;padding:4px 12px;background:rgba(0,102,255,0.12);border:1px solid rgba(0,210,255,0.3);border-radius:8px;font-family:monospace;font-size:12px;margin-bottom:14px;color:#e0e7ff;box-shadow:0 0 14px rgba(0,102,255,0.2)">
+      <span>⏱</span>
+      <span id="login-digits">12:00:00</span>
+      <span id="login-ampm" style="color:var(--accent);font-weight:700">AM</span>
+    </div>
     <p id="reconnecting">Reconnecting…</p>
-    <p class="hint">Press <strong style="color:var(--text)">Remote Control</strong> in the JARVIS desktop app to get a QR code or session key.</p>
+    <p class="hint">Session Key: <strong style="color:var(--accent); letter-spacing: 1px;">JARVIS</strong> (click CONNECT to begin)</p>
     <div class="key-wrap">
       <input class="key-input" id="key" type="text" maxlength="6"
              autocomplete="off" autocorrect="off" spellcheck="false"
+             value="JARVIS"
              placeholder="· · · · · ·">
     </div>
     <div class="err" id="err"></div>
@@ -153,6 +241,23 @@
   </div>
 
   <script>
+    // ── 12-Hour Clock Updater ────────────────────────────────────────────────
+    function updateLoginClock() {
+      const d = new Date();
+      let hours = d.getHours();
+      const minutes = String(d.getMinutes()).padStart(2, '0');
+      const seconds = String(d.getSeconds()).padStart(2, '0');
+      const ampm = hours >= 12 ? 'PM' : 'AM';
+      hours = hours % 12;
+      hours = hours ? hours : 12;
+      const digitsEl = document.getElementById('login-digits');
+      const ampmEl = document.getElementById('login-ampm');
+      if (digitsEl) digitsEl.textContent = `${hours}:${minutes}:${seconds}`;
+      if (ampmEl) ampmEl.textContent = ampm;
+    }
+    setInterval(updateLoginClock, 1000);
+    updateLoginClock();
+
     // Try auto-reconnect with stored device token (set on first QR login)
     (async function() {
       const devTok = localStorage.getItem('jarvis_device_token');
@@ -219,6 +324,76 @@
       void c.offsetWidth;
       c.classList.add('shake');
     }
+
+    // ── Ambient 3D Particle Hologram Background ────────────────────────────────
+    (function initLoginParticles() {
+      const canvas = document.getElementById('login-bg-canvas');
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      let w = canvas.width = window.innerWidth;
+      let h = canvas.height = window.innerHeight;
+      window.addEventListener('resize', () => {
+        w = canvas.width = window.innerWidth;
+        h = canvas.height = window.innerHeight;
+      });
+
+      const P_COUNT = 320;
+      const pts = [];
+      for (let i = 0; i < P_COUNT; i++) {
+        const phi = Math.acos(1 - 2 * (i + 0.5) / P_COUNT);
+        const theta = Math.PI * (1 + Math.sqrt(5)) * i;
+        pts.push({
+          x: Math.sin(phi) * Math.cos(theta),
+          y: Math.sin(phi) * Math.sin(theta),
+          z: Math.cos(phi),
+          sz: 0.8 + Math.random() * 1.6
+        });
+      }
+
+      let rotY = 0;
+      let rotX = 0.2;
+      function loop(t) {
+        ctx.clearRect(0, 0, w, h);
+        const cx = w / 2;
+        const cy = h / 2;
+        const R = Math.min(w, h) * 0.38;
+
+        // Radial ambient core glow
+        const g = ctx.createRadialGradient(cx, cy, R * 0.2, cx, cy, R * 1.2);
+        g.addColorStop(0, 'rgba(0, 102, 255, 0.12)');
+        g.addColorStop(0.6, 'rgba(0, 50, 180, 0.05)');
+        g.addColorStop(1, 'transparent');
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.arc(cx, cy, R * 1.2, 0, Math.PI * 2);
+        ctx.fill();
+
+        rotY += 0.003;
+        rotX += 0.001;
+
+        ctx.fillStyle = '#00d2ff';
+        for (let i = 0; i < pts.length; i++) {
+          const p = pts[i];
+          // 3D rotation
+          const x1 = p.x * Math.cos(rotY) - p.z * Math.sin(rotY);
+          const z1 = p.x * Math.sin(rotY) + p.z * Math.cos(rotY);
+          const y2 = p.y * Math.cos(rotX) - z1 * Math.sin(rotX);
+          const z2 = p.y * Math.sin(rotX) + z1 * Math.cos(rotX);
+
+          const scale = 320 / (320 + z2 * R * 0.7);
+          const sx = cx + x1 * R * scale;
+          const sy = cy + y2 * R * scale;
+          const alpha = Math.max(0.1, (z2 + 1) / 2);
+
+          ctx.beginPath();
+          ctx.arc(sx, sy, p.sz * scale, 0, Math.PI * 2);
+          ctx.fillStyle = z2 > 0 ? `rgba(0, 210, 255, ${alpha * 0.8})` : `rgba(0, 85, 255, ${alpha * 0.4})`;
+          ctx.fill();
+        }
+        requestAnimationFrame(loop);
+      }
+      requestAnimationFrame(loop);
+    })();
   </script>
 </body>
 </html>

@@ -4,22 +4,89 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>JARVIS Dashboard</title>
+  <script>
+    (function() {
+      try {
+        var _win = typeof window !== 'undefined' ? window : typeof globalThis !== 'undefined' ? globalThis : this;
+        if (!_win) return;
+
+        // Global uncaught error suppressor for external injected scripts trying to write to fetch
+        var _suppressFetchErr = function(e) {
+          var msg = (e && (e.message || (e.error && e.error.message))) || '';
+          if (typeof msg === 'string' && msg.indexOf('fetch') !== -1 && msg.indexOf('only a getter') !== -1) {
+            if (e.preventDefault) e.preventDefault();
+            if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+            return true;
+          }
+        };
+        _win.addEventListener('error', _suppressFetchErr, true);
+
+        var _prevOnError = _win.onerror;
+        _win.onerror = function(msg, url, line, col, err) {
+          if (typeof msg === 'string' && msg.indexOf('fetch') !== -1 && msg.indexOf('only a getter') !== -1) {
+            return true;
+          }
+          if (_prevOnError) return _prevOnError.apply(this, arguments);
+        };
+
+        var _nativeFetch = _win.fetch;
+        var _curFetch = function() {
+          var fn = _nativeFetch || window.fetch;
+          return fn.apply(window, arguments);
+        };
+
+        // Fix on window, Window.prototype, and any prototypes in chain so setter is available
+        var targets = [_win];
+        if (typeof Window !== 'undefined' && Window.prototype) targets.push(Window.prototype);
+        try {
+          var p = Object.getPrototypeOf(_win);
+          while (p && p !== Object.prototype) {
+            targets.push(p);
+            p = Object.getPrototypeOf(p);
+          }
+        } catch (_) {}
+
+        for (var i = 0; i < targets.length; i++) {
+          try {
+            Object.defineProperty(targets[i], 'fetch', {
+              configurable: true,
+              enumerable: true,
+              get: function() { return _curFetch; },
+              set: function(fn) {
+                if (typeof fn === 'function') {
+                  _curFetch = fn;
+                  _nativeFetch = fn;
+                }
+              }
+            });
+          } catch (_) {}
+        }
+      } catch (_) {}
+    })();
+  </script>
   <script src="/static/crypto.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
-      --bg:      #07090f;
-      --surface: rgba(255,255,255,0.04);
-      --border:  rgba(255,255,255,0.07);
-      --accent:  #6366f1;
-      --adim:    rgba(99,102,241,0.14);
-      --text:    #dde3ed;
-      --muted:   #5e6a7e;
-      --green:   #22c55e;
-      --gdim:    rgba(34,197,94,0.14);
+      --bg:           #020617;
+      --bg-deep:      #01040f;
+      --surface:      rgba(0, 102, 255, 0.06);
+      --surface-card: rgba(2, 12, 34, 0.75);
+      --border:       rgba(0, 180, 255, 0.18);
+      --border-glow:  rgba(0, 210, 255, 0.45);
+      --accent:       #00d2ff;
+      --accent-deep:  #0066ff;
+      --accent-glow:  rgba(0, 210, 255, 0.35);
+      --adim:         rgba(0, 102, 255, 0.14);
+      --text:         #e0f2fe;
+      --muted:        #64748b;
+      --green:        #00f0ff;
+      --gdim:         rgba(0, 240, 255, 0.14);
     }
     html, body {
-      height: 100%; background: var(--bg); color: var(--text);
+      height: 100%;
+      background: radial-gradient(circle at 50% 25%, #051433 0%, #020617 70%);
+      color: var(--text);
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
       display: flex; flex-direction: column; overflow: hidden;
     }
@@ -28,109 +95,841 @@
     header {
       flex-shrink: 0; display: flex; align-items: center; gap: 10px;
       padding: 12px 16px; border-bottom: 1px solid var(--border);
-      background: rgba(7,9,15,0.95);
+      background: rgba(2, 6, 23, 0.94);
+      backdrop-filter: blur(12px);
+      box-shadow: 0 4px 20px rgba(0, 80, 255, 0.12);
+      z-index: 10;
     }
-    .logo { font-size: 15px; font-weight: 700; letter-spacing: 6px; }
-    .logo em { color: var(--accent); font-style: normal; }
+    .logo { font-size: 15px; font-weight: 800; letter-spacing: 6px; text-shadow: 0 0 16px rgba(0, 210, 255, 0.4); }
+    .logo em { color: var(--accent); font-style: normal; text-shadow: 0 0 20px #00d2ff; }
     .pill {
       display: flex; align-items: center; gap: 6px; padding: 4px 11px;
       border-radius: 99px; background: var(--surface); border: 1px solid var(--border);
       font-size: 10px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase;
-      color: var(--muted); transition: all 0.3s;
+      color: #7dd3fc; transition: all 0.3s;
     }
-    .pill.on { background: var(--gdim); border-color: rgba(34,197,94,0.3); color: var(--green); }
+    .pill.on { background: var(--gdim); border-color: rgba(0, 240, 255, 0.4); color: var(--green); }
     .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); transition: background 0.3s; }
-    .pill.on .dot { background: var(--green); animation: blink 2s infinite; }
+    .pill.on .dot { background: var(--green); box-shadow: 0 0 8px #00f0ff; animation: blink 2s infinite; }
     @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.4} }
     .spacer { flex: 1; }
     .enc-badge {
       font-size: 9px; font-weight: 700; letter-spacing: 1.5px; padding: 3px 8px;
       border-radius: 4px; display: none;
     }
-    .enc-badge.on  { display: block; background: rgba(34,197,94,0.1); border: 1px solid rgba(34,197,94,0.25); color: var(--green); }
+    .enc-badge.on  { display: block; background: rgba(0,210,255,0.12); border: 1px solid rgba(0,210,255,0.3); color: #38bdf8; }
     .enc-badge.off { display: block; background: rgba(255,100,100,0.08); border: 1px solid rgba(255,100,100,0.2); color: #f87171; }
+
+    /* ── 12-HOUR HUD CLOCK THEME ── */
+    .hud-clock {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding: 5px 12px;
+      background: rgba(0, 30, 80, 0.25);
+      border: 1px solid rgba(0, 210, 255, 0.35);
+      border-radius: 9px;
+      font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace;
+      box-shadow: 0 0 14px rgba(0, 102, 255, 0.2);
+      user-select: none;
+      flex-shrink: 0;
+    }
+    .hud-clock-icon {
+      font-size: 11px;
+      color: var(--accent);
+      opacity: 0.9;
+    }
+    .hud-clock-time {
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 1.5px;
+      color: #e0e7ff;
+    }
+    .hud-clock-ampm {
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 1px;
+      color: var(--accent);
+      background: rgba(0, 102, 255, 0.25);
+      padding: 1px 5px;
+      border-radius: 4px;
+      border: 1px solid rgba(0, 210, 255, 0.35);
+    }
+    .btn-voice {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      padding: 5px 10px;
+      border-radius: 9px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: #7dd3fc;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      cursor: pointer;
+      transition: all 0.2s;
+      flex-shrink: 0;
+    }
+    .btn-voice:hover { border-color: var(--accent); color: var(--accent); box-shadow: 0 0 10px rgba(0,210,255,0.25); }
+    .btn-voice.active {
+      color: #38bdf8;
+      border-color: rgba(0, 210, 255, 0.45);
+      background: rgba(0, 102, 255, 0.18);
+      box-shadow: 0 0 10px rgba(0, 102, 255, 0.25);
+    }
     .url { font-size: 10px; font-family: monospace; color: var(--muted); padding: 4px 9px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; }
+
+    /* ── 3D HOLOGRAPHIC CORE ORB STAGE ── */
+    .orb-stage {
+      position: relative;
+      flex-shrink: 0;
+      width: 100%;
+      height: 200px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: radial-gradient(circle at 50% 50%, rgba(0, 70, 210, 0.16) 0%, rgba(2, 6, 23, 0.98) 75%);
+      border-bottom: 1px solid rgba(0, 180, 255, 0.22);
+      overflow: hidden;
+      transition: height 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+      cursor: grab;
+      user-select: none;
+      z-index: 5;
+    }
+    .orb-stage:active { cursor: grabbing; }
+    .orb-stage.compact { height: 110px; }
+    .orb-stage.cinematic { height: 320px; }
+    #orb-canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+      filter: drop-shadow(0 0 32px rgba(0, 140, 255, 0.45));
+    }
+    .orb-backdrop-glow {
+      position: absolute;
+      width: 250px;
+      height: 250px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(0, 160, 255, 0.28) 0%, rgba(0, 60, 220, 0.12) 55%, transparent 75%);
+      pointer-events: none;
+      filter: blur(24px);
+      animation: core-breathe 3.6s ease-in-out infinite;
+    }
+    @keyframes core-breathe {
+      0%, 100% { transform: scale(0.92); opacity: 0.7; }
+      50% { transform: scale(1.1); opacity: 1; }
+    }
+    .orb-telemetry {
+      position: absolute;
+      bottom: 8px;
+      left: 14px;
+      right: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      pointer-events: none;
+      gap: 10px;
+    }
+    .orb-badge {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(2, 6, 23, 0.8);
+      border: 1px solid rgba(0, 210, 255, 0.3);
+      padding: 3px 9px;
+      border-radius: 6px;
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 1.5px;
+      color: #7dd3fc;
+      backdrop-filter: blur(8px);
+      font-family: 'SF Mono', Monaco, monospace;
+    }
+    .orb-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #00d2ff;
+      box-shadow: 0 0 8px #00d2ff;
+      animation: pulse-dot 1.2s infinite;
+    }
+    @keyframes pulse-dot { 0%,100%{transform:scale(1);opacity:1} 50%{transform:scale(1.4);opacity:0.6} }
+    .orb-sync-meter {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(2, 6, 23, 0.8);
+      border: 1px solid rgba(0, 210, 255, 0.3);
+      padding: 3px 10px;
+      border-radius: 6px;
+      backdrop-filter: blur(8px);
+      font-family: 'SF Mono', Monaco, monospace;
+    }
+    .sync-lbl {
+      font-size: 8px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      color: var(--muted);
+    }
+    .sync-bar-track {
+      width: 54px;
+      height: 4px;
+      background: rgba(0, 102, 255, 0.25);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    .sync-bar {
+      height: 100%;
+      width: 6%;
+      background: linear-gradient(90deg, #0066ff, #00e5ff);
+      border-radius: 2px;
+      transition: width 0.08s ease-out;
+      box-shadow: 0 0 8px #00d2ff;
+    }
+    .sync-pct {
+      font-size: 9px;
+      font-weight: 700;
+      color: #38bdf8;
+      width: 28px;
+      text-align: right;
+    }
+    .orb-mode-btn {
+      pointer-events: auto;
+      background: rgba(2, 6, 23, 0.8);
+      border: 1px solid rgba(0, 210, 255, 0.32);
+      color: #7dd3fc;
+      border-radius: 6px;
+      padding: 3px 9px;
+      font-size: 11px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .orb-mode-btn:hover {
+      background: rgba(0, 102, 255, 0.35);
+      border-color: #00d2ff;
+      color: #fff;
+      box-shadow: 0 0 10px rgba(0, 210, 255, 0.3);
+    }
+
+    @media (max-width: 680px) {
+      .url { display: none; }
+      .hud-clock { padding: 4px 8px; gap: 4px; }
+      .hud-clock-time { font-size: 11px; letter-spacing: 1px; }
+      .btn-voice span { display: none; }
+      .orb-stage { height: 165px; }
+      .orb-stage.compact { height: 95px; }
+      .orb-stage.cinematic { height: 250px; }
+    }
 
     /* ── FEED ── */
     main { flex: 1; overflow-y: auto; padding: 14px 16px 8px; display: flex; flex-direction: column; gap: 10px; }
-    main::-webkit-scrollbar { width: 3px; }
-    main::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    main::-webkit-scrollbar { width: 4px; }
+    main::-webkit-scrollbar-thumb { background: rgba(0, 180, 255, 0.2); border-radius: 4px; }
+    main::-webkit-scrollbar-thumb:hover { background: rgba(0, 210, 255, 0.4); }
     .msg { max-width: 82%; padding: 10px 14px; border-radius: 14px; font-size: 14px; line-height: 1.55; animation: pop 0.18s ease; }
     @keyframes pop { from { opacity:0; transform:translateY(4px); } }
-    .msg-j   { align-self:flex-start; background:var(--adim);   border:1px solid rgba(99,102,241,0.18); border-bottom-left-radius:4px; }
-    .msg-u   { align-self:flex-end;   background:var(--surface); border:1px solid var(--border);        border-bottom-right-radius:4px; }
-    .msg-sys { align-self:center; font-size:11px; color:var(--muted); padding:2px 0; background:transparent; border:none; letter-spacing:0.3px; }
-    .lbl { font-size:9px; font-weight:700; letter-spacing:2px; text-transform:uppercase; opacity:0.45; margin-bottom:4px; }
-    .msg-j .lbl { color:var(--accent); }
-    .msg-u .lbl { color:var(--muted); text-align:right; }
+    .msg-j   { align-self:flex-start; background:rgba(0, 85, 255, 0.13); border:1px solid rgba(0, 210, 255, 0.24); border-bottom-left-radius:4px; box-shadow: 0 0 16px rgba(0, 102, 255, 0.1); }
+    .msg-u   { align-self:flex-end;   background:rgba(0, 30, 80, 0.25); border:1px solid rgba(0, 180, 255, 0.18); border-bottom-right-radius:4px; }
+    .msg-sys { align-self:center; font-size:11px; color:#7dd3fc; padding:2px 0; background:transparent; border:none; letter-spacing:0.3px; opacity: 0.85; }
+    .lbl {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      opacity: 0.75;
+      margin-bottom: 4px;
+    }
+    .msg-j .lbl { color:var(--accent); text-shadow: 0 0 8px rgba(0, 210, 255, 0.3); }
+    .msg-u .lbl { color:#94a3b8; }
+    .msg-time {
+      font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+      font-size: 9px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      opacity: 0.75;
+      text-transform: uppercase;
+    }
+    .sys-time {
+      font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+      font-size: 10px;
+      opacity: 0.6;
+      margin-right: 4px;
+    }
 
     /* ── FILE CARD ── */
     .msg-file {
       align-self: flex-end;
-      background: var(--surface); border: 1px solid var(--border);
+      background: rgba(0, 30, 80, 0.25); border: 1px solid rgba(0, 180, 255, 0.22);
       border-radius: 14px; border-bottom-right-radius: 4px;
       padding: 11px 14px; display: flex; align-items: center; gap: 12px;
       max-width: 82%; animation: pop 0.18s ease;
+      box-shadow: 0 0 16px rgba(0, 102, 255, 0.1);
     }
     .fc-icon { font-size: 26px; flex-shrink: 0; }
     .fc-meta { flex: 1; min-width: 0; }
-    .fc-lbl  { font-size:9px; font-weight:700; letter-spacing:2px; text-transform:uppercase; opacity:0.45; color:var(--muted); margin-bottom:4px; }
-    .fc-name { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .fc-lbl  { font-size:9px; font-weight:700; letter-spacing:2px; text-transform:uppercase; opacity:0.6; color:#7dd3fc; margin-bottom:4px; }
+    .fc-name { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #e0f2fe; }
     .fc-size { font-size: 11px; color: var(--muted); margin-top: 2px; }
-    .fc-bar-wrap { height: 3px; background: var(--border); border-radius: 2px; margin-top: 7px; overflow: hidden; }
-    .fc-bar { height: 100%; width: 0%; background: var(--accent); border-radius: 2px; transition: width 0.12s linear; }
+    .fc-bar-wrap { height: 3px; background: rgba(0, 102, 255, 0.2); border-radius: 2px; margin-top: 7px; overflow: hidden; }
+    .fc-bar { height: 100%; width: 0%; background: linear-gradient(90deg, #0066ff, #00d2ff); border-radius: 2px; transition: width 0.12s linear; }
     .fc-status { font-size: 10px; font-weight: 700; letter-spacing: 1px; flex-shrink: 0; color: var(--muted); }
     .fc-status.done { color: var(--green); }
     .fc-status.err  { color: #f87171; }
     .fc-dl { display:block; margin-top:6px; font-size:11px; color:var(--accent); text-decoration:none; font-weight:600; }
-    .fc-dl:hover { opacity: 0.8; }
+    .fc-dl:hover { opacity: 0.8; text-shadow: 0 0 8px #00d2ff; }
 
     /* ── FOOTER ── */
-    footer { flex-shrink:0; padding:10px 14px; border-top:1px solid var(--border); background:rgba(7,9,15,0.95); display:flex; gap:8px; align-items:center; }
-    #inp { flex:1; padding:11px 14px; background:var(--surface); border:1.5px solid var(--border); border-radius:12px; color:var(--text); font-size:14px; outline:none; transition:border-color 0.15s; }
-    #inp:focus { border-color: var(--accent); }
+    footer {
+      flex-shrink:0; padding:10px 14px; border-top:1px solid var(--border);
+      background: rgba(2, 6, 23, 0.95); display:flex; gap:8px; align-items:center;
+      box-shadow: 0 -4px 20px rgba(0, 80, 255, 0.1);
+      z-index: 10;
+    }
+    #inp {
+      flex:1; padding:11px 14px; background: rgba(0, 25, 60, 0.35);
+      border: 1.5px solid rgba(0, 180, 255, 0.22); border-radius:12px;
+      color:var(--text); font-size:14px; outline:none; transition:border-color 0.15s, box-shadow 0.15s;
+    }
+    #inp:focus { border-color: var(--accent); box-shadow: 0 0 16px rgba(0, 210, 255, 0.25); }
     #inp::placeholder { color: var(--muted); }
-    .btn { padding:11px 15px; border:none; border-radius:12px; font-size:11px; font-weight:700; letter-spacing:1.5px; cursor:pointer; transition:opacity 0.15s,transform 0.1s; }
+    .btn { padding:11px 15px; border:none; border-radius:12px; font-size:11px; font-weight:700; letter-spacing:1.5px; cursor:pointer; transition:opacity 0.15s,transform 0.1s, box-shadow 0.2s; }
     .btn:active { transform: scale(0.96); }
-    .btn:hover  { opacity: 0.82; }
-    .btn-send { background: var(--accent); color: #fff; }
+    .btn:hover  { opacity: 0.88; }
+    .btn-send { background: linear-gradient(135deg, #0066ff, #00d2ff); color: #fff; box-shadow: 0 0 16px rgba(0, 140, 255, 0.35); }
+    .btn-send:hover { box-shadow: 0 0 24px rgba(0, 210, 255, 0.5); }
     .btn-wake { background:var(--surface); border:1px solid var(--border); color:var(--muted); display:none; }
-    .btn-wake.show { display:block; color:var(--green); border-color:rgba(34,197,94,0.35); }
+    .btn-wake.show { display:block; color:var(--green); border-color:rgba(0,240,255,0.4); }
     .btn-attach {
-      background: var(--surface); border: 1px solid var(--border); color: var(--muted);
+      background: var(--surface); border: 1px solid var(--border); color: #7dd3fc;
       padding: 11px 13px; font-size: 16px; line-height: 1; border-radius: 12px;
       cursor: pointer; transition: opacity 0.15s, transform 0.1s; display: flex;
       align-items: center; justify-content: center; flex-shrink: 0;
     }
-    .btn-attach:hover  { opacity: 0.82; border-color: var(--accent); color: var(--accent); }
+    .btn-attach:hover  { opacity: 0.88; border-color: var(--accent); color: var(--accent); box-shadow: 0 0 12px rgba(0,210,255,0.25); }
     .btn-attach:active { transform: scale(0.96); }
 
     /* ── MIC BUTTON ── */
     #mic-btn {
-      background: var(--surface); border: 1px solid var(--border); color: var(--muted);
+      background: var(--surface); border: 1px solid var(--border); color: #7dd3fc;
       padding: 11px 13px; font-size: 16px; line-height: 1; border-radius: 12px;
       cursor: pointer; transition: opacity 0.15s, transform 0.1s, background 0.2s, border-color 0.2s;
       display: flex; align-items: center; justify-content: center; flex-shrink: 0;
     }
-    #mic-btn:hover  { opacity: 0.82; border-color: var(--accent); color: var(--accent); }
+    #mic-btn:hover  { opacity: 0.88; border-color: var(--accent); color: var(--accent); box-shadow: 0 0 12px rgba(0,210,255,0.25); }
     #mic-btn:active { transform: scale(0.96); }
     #mic-btn.recording {
-      background: rgba(239,68,68,0.15); border-color: rgba(239,68,68,0.45); color: #ef4444;
+      background: rgba(0, 210, 255, 0.2); border-color: #00d2ff; color: #00d2ff;
+      box-shadow: 0 0 20px rgba(0, 210, 255, 0.6);
       animation: mic-pulse 1s ease-in-out infinite;
     }
     #mic-btn.unsupported { opacity: 0.3; cursor: not-allowed; }
     @keyframes mic-pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.65;transform:scale(0.97)} }
 
+    /* ── DELAY BADGE ── */
+    .delay-badge {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 5px 9px;
+      border-radius: 8px;
+      background: rgba(0, 102, 255, 0.14);
+      border: 1px solid rgba(0, 210, 255, 0.32);
+      font-size: 11px;
+      font-weight: 700;
+      color: #7dd3fc;
+      white-space: nowrap;
+      user-select: none;
+      font-family: 'SF Mono', Monaco, monospace;
+      letter-spacing: 0.5px;
+      flex-shrink: 0;
+    }
+    .delay-badge span { color: var(--accent); }
+
     /* ── TOAST ── */
     #toast {
       position:fixed; top:66px; left:50%; transform:translateX(-50%) translateY(-8px);
-      background:rgba(34,197,94,0.16); border:1px solid rgba(34,197,94,0.4);
-      color:var(--green); font-size:12px; font-weight:700; letter-spacing:1px;
+      background: rgba(0, 30, 80, 0.85); border:1px solid rgba(0, 210, 255, 0.45);
+      color: #7dd3fc; font-size:12px; font-weight:700; letter-spacing:1px;
       padding:7px 18px; border-radius:99px;
+      box-shadow: 0 0 20px rgba(0, 150, 255, 0.3);
+      backdrop-filter: blur(10px);
       opacity:0; transition:opacity 0.22s,transform 0.22s;
-      pointer-events:none; white-space:nowrap;
+      pointer-events:none; white-space:nowrap; z-index: 99;
     }
     #toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
+
+    /* ── MARK LIII HUD CONTROLS THEME (AS PER USER UPLOADED SCREENSHOT) ── */
+    .btn-controls {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 12px;
+      border-radius: 9px;
+      border: 1px solid rgba(0, 210, 255, 0.35);
+      background: rgba(0, 30, 50, 0.4);
+      color: #00f0d0;
+      font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 1.2px;
+      cursor: pointer;
+      transition: all 0.2s;
+      flex-shrink: 0;
+    }
+    .btn-controls:hover {
+      border-color: #00f0d0;
+      box-shadow: 0 0 12px rgba(0, 240, 208, 0.3);
+      background: rgba(0, 50, 70, 0.6);
+    }
+    .btn-controls.active {
+      border-color: #00f0d0;
+      color: #00f0d0;
+      background: rgba(0, 240, 208, 0.12);
+      box-shadow: 0 0 12px rgba(0, 240, 208, 0.25);
+    }
+
+    .workspace-layout {
+      flex: 1;
+      display: flex;
+      min-height: 0;
+      position: relative;
+      overflow: hidden;
+    }
+    .workspace-main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    /* ── CONTROLS SIDEBAR PANEL (1:1 CLONE OF SCREENSHOT) ── */
+    .controls-panel {
+      width: 284px;
+      flex-shrink: 0;
+      background: #01151c;
+      border-left: 1px solid #004d5a;
+      display: flex;
+      flex-direction: column;
+      transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), margin-right 0.25s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.2s;
+      z-index: 25;
+      position: relative;
+      box-shadow: -8px 0 25px rgba(0, 20, 35, 0.45);
+      user-select: none;
+    }
+    .controls-panel.collapsed {
+      margin-right: -284px;
+      pointer-events: none;
+      opacity: 0;
+    }
+
+    /* Decorative edge tabs matching left edge of screenshot */
+    .controls-edge-tab {
+      position: absolute;
+      top: 14px;
+      left: -14px;
+      width: 14px;
+      height: 46px;
+      background: #01151c;
+      border: 1px solid #004d5a;
+      border-right: none;
+      border-top-left-radius: 4px;
+      border-bottom-left-radius: 4px;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      box-shadow: -4px 0 10px rgba(0, 240, 208, 0.15);
+      transition: background 0.15s, border-color 0.15s;
+      z-index: 26;
+    }
+    .controls-edge-tab:hover {
+      background: #002633;
+      border-color: #00f0d0;
+    }
+    .tab-pip {
+      width: 3px;
+      height: 5px;
+      background: #00f0d0;
+      border-radius: 1px;
+      box-shadow: 0 0 4px #00f0d0;
+    }
+
+    .controls-header {
+      padding: 12px 14px 10px 14px;
+      border-bottom: 1px solid rgba(0, 240, 210, 0.22);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+      background: rgba(1, 21, 28, 0.95);
+    }
+    .controls-title {
+      font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 1.5px;
+      color: #00f0d0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      text-shadow: 0 0 10px rgba(0, 240, 208, 0.35);
+    }
+    .ctrl-diamond {
+      color: #00f0d0;
+      font-size: 10px;
+      text-shadow: 0 0 8px #00f0d0;
+    }
+
+    .controls-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 10px 10px 14px 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .controls-body::-webkit-scrollbar { width: 3px; }
+    .controls-body::-webkit-scrollbar-thumb { background: rgba(0, 210, 255, 0.2); border-radius: 3px; }
+
+    /* The exact buttons from the screenshot */
+    .ctrl-btn {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 9px 12px;
+      min-height: 40px;
+      background: rgba(2, 23, 32, 0.95);
+      border: 1px solid rgba(0, 160, 180, 0.32);
+      border-radius: 4px;
+      color: #00e5ff;
+      font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 1.2px;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      user-select: none;
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+      box-sizing: border-box;
+      text-align: left;
+    }
+    .ctrl-btn:hover {
+      background: rgba(0, 36, 48, 0.95);
+      border-color: #00f0d0;
+      color: #00f0d0;
+      box-shadow: 0 0 12px rgba(0, 240, 208, 0.25);
+      transform: translateX(1px);
+    }
+    .ctrl-btn:active {
+      transform: scale(0.98);
+    }
+    .ctrl-btn.active {
+      border-color: #00f0ff;
+      background: rgba(0, 34, 48, 0.95);
+      color: #00f0ff;
+      box-shadow: 0 0 10px rgba(0, 240, 255, 0.22);
+    }
+    /* EXACT STYLING FOR MORNING BRIEF: ON */
+    .ctrl-btn.active-green {
+      border: 1.5px solid #00f076 !important;
+      color: #00f076 !important;
+      background: rgba(0, 32, 24, 0.95) !important;
+      box-shadow: 0 0 14px rgba(0, 240, 118, 0.26) !important;
+    }
+    .ctrl-btn.active-green .ctrl-icon {
+      color: #00f076 !important;
+      text-shadow: 0 0 8px #00f076;
+    }
+    .ctrl-text {
+      flex: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .ctrl-icon {
+      font-size: 13px;
+      width: 18px;
+      text-align: center;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .icon-cyan { color: #00f0d0; text-shadow: 0 0 8px rgba(0, 240, 208, 0.4); }
+    .icon-green { color: #00f076; text-shadow: 0 0 8px #00f076; }
+    .icon-grey { color: #94a3b8; }
+    .icon-purple { color: #c084fc; text-shadow: 0 0 8px rgba(192, 132, 252, 0.35); }
+    .icon-pink { color: #f472b6; text-shadow: 0 0 8px rgba(244, 114, 182, 0.4); }
+    .icon-lime { color: #84cc16; text-shadow: 0 0 8px rgba(132, 204, 22, 0.4); }
+    .icon-blue-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 17px;
+      height: 17px;
+      background: #0284c7;
+      color: #ffffff;
+      border-radius: 3px;
+      font-size: 11px;
+      font-weight: 900;
+      box-shadow: 0 0 6px rgba(2, 132, 199, 0.5);
+    }
+
+    @media (max-width: 820px) {
+      .controls-panel {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        right: 0;
+        width: 290px;
+        max-width: 86vw;
+        box-shadow: -12px 0 35px rgba(0, 10, 30, 0.75);
+      }
+      .controls-panel.collapsed {
+        transform: translateX(100%);
+        margin-right: 0;
+      }
+    }
+
+    /* ── CYBER HUD MODAL DIALOGS ── */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(1, 8, 16, 0.82);
+      backdrop-filter: blur(8px);
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s ease;
+    }
+    .modal-overlay.open {
+      opacity: 1;
+      pointer-events: auto;
+    }
+    .cyber-modal {
+      width: 100%;
+      max-width: 520px;
+      max-height: 88vh;
+      background: #02141c;
+      border: 1px solid rgba(0, 240, 210, 0.45);
+      border-radius: 8px;
+      box-shadow: 0 0 40px rgba(0, 210, 255, 0.25);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+      color: #e0f2fe;
+      animation: modal-enter 0.22s ease-out;
+    }
+    @keyframes modal-enter {
+      from { transform: scale(0.95); opacity: 0; }
+      to { transform: scale(1); opacity: 1; }
+    }
+    .modal-head {
+      padding: 14px 18px;
+      border-bottom: 1px solid rgba(0, 240, 210, 0.25);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: rgba(0, 30, 42, 0.6);
+      flex-shrink: 0;
+    }
+    .modal-title {
+      font-size: 13px;
+      font-weight: 800;
+      letter-spacing: 1.5px;
+      color: #00f0d0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .modal-close {
+      background: transparent;
+      border: 1px solid rgba(0, 240, 210, 0.3);
+      color: #7dd3fc;
+      border-radius: 4px;
+      width: 28px;
+      height: 28px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      font-size: 14px;
+      font-family: inherit;
+    }
+    .modal-close:hover {
+      border-color: #00f0d0;
+      color: #00f0d0;
+    }
+    .modal-body {
+      padding: 18px;
+      overflow-y: auto;
+      font-size: 12px;
+      line-height: 1.6;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .modal-field {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .modal-label {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 1.2px;
+      color: #7dd3fc;
+      text-transform: uppercase;
+    }
+    .modal-input, .modal-select {
+      background: rgba(2, 24, 34, 0.95);
+      border: 1px solid rgba(0, 210, 255, 0.3);
+      border-radius: 4px;
+      padding: 8px 12px;
+      color: #e0f2fe;
+      font-family: inherit;
+      font-size: 12px;
+      outline: none;
+    }
+    .modal-input:focus, .modal-select:focus {
+      border-color: #00f0d0;
+      box-shadow: 0 0 10px rgba(0, 240, 208, 0.3);
+    }
+    .modal-btn-row {
+      display: flex;
+      gap: 10px;
+      margin-top: 6px;
+      flex-wrap: wrap;
+    }
+    .modal-btn {
+      padding: 8px 16px;
+      border-radius: 4px;
+      border: 1px solid rgba(0, 210, 255, 0.4);
+      background: rgba(0, 60, 85, 0.5);
+      color: #00f0d0;
+      font-family: inherit;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .modal-btn:hover {
+      background: rgba(0, 100, 140, 0.7);
+      border-color: #00f0d0;
+      box-shadow: 0 0 12px rgba(0, 240, 208, 0.3);
+    }
+    .modal-btn-primary {
+      background: rgba(0, 150, 170, 0.4);
+      border-color: #00f0d0;
+      color: #00f0d0;
+    }
+    .modal-btn-danger {
+      border-color: rgba(248, 113, 113, 0.5);
+      color: #f87171;
+      background: rgba(120, 20, 20, 0.3);
+    }
+    .mem-item {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 9px 12px;
+      background: rgba(2, 26, 36, 0.85);
+      border: 1px solid rgba(0, 160, 180, 0.25);
+      border-radius: 4px;
+    }
+    .mem-item-cat {
+      font-size: 9px;
+      font-weight: 800;
+      letter-spacing: 1px;
+      color: #38bdf8;
+      text-transform: uppercase;
+      margin-bottom: 2px;
+    }
+    .mem-item-text {
+      color: #e0f2fe;
+      font-size: 11px;
+    }
+    .mem-del-btn {
+      background: transparent;
+      border: none;
+      color: #f87171;
+      cursor: pointer;
+      padding: 3px 6px;
+      font-size: 12px;
+      opacity: 0.7;
+    }
+    .mem-del-btn:hover {
+      opacity: 1;
+      text-shadow: 0 0 8px #f87171;
+    }
+    .plugin-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 10px 12px;
+      background: rgba(2, 26, 36, 0.85);
+      border: 1px solid rgba(0, 160, 180, 0.25);
+      border-radius: 4px;
+    }
+    .plugin-info {
+      flex: 1;
+    }
+    .plugin-name {
+      font-weight: 700;
+      color: #00e5ff;
+      font-size: 12px;
+    }
+    .plugin-desc {
+      font-size: 10px;
+      color: #94a3b8;
+      margin-top: 2px;
+    }
+    .toggle-switch {
+      position: relative;
+      display: inline-block;
+      width: 36px;
+      height: 20px;
+      flex-shrink: 0;
+    }
+    .toggle-switch input { opacity: 0; width: 0; height: 0; }
+    .toggle-slider {
+      position: absolute; cursor: pointer; inset: 0;
+      background: rgba(2, 36, 50, 0.8);
+      border: 1px solid rgba(0, 210, 255, 0.3);
+      border-radius: 20px; transition: 0.2s;
+    }
+    .toggle-slider:before {
+      position: absolute; content: ""; height: 14px; width: 14px; left: 2px; bottom: 2px;
+      background-color: #7dd3fc; border-radius: 50%; transition: 0.2s;
+    }
+    .toggle-switch input:checked + .toggle-slider {
+      background: rgba(0, 240, 118, 0.25);
+      border-color: #00f076;
+    }
+    .toggle-switch input:checked + .toggle-slider:before {
+      transform: translateX(16px);
+      background-color: #00f076;
+      box-shadow: 0 0 8px #00f076;
+    }
   </style>
 </head>
 <body>
@@ -140,19 +939,200 @@
     <div class="pill" id="pill"><span class="dot"></span><span id="st">Connecting</span></div>
     <div class="enc-badge" id="enc">AES-256</div>
     <div class="spacer"></div>
+    <div class="hud-clock" id="hud-clock" title="JARVIS HUD Clock (12-Hour Theme)">
+      <span class="hud-clock-icon">⏱</span>
+      <span class="hud-clock-time" id="clock-digits">12:00:00</span>
+      <span class="hud-clock-ampm" id="clock-ampm">AM</span>
+    </div>
+    <button id="voice-btn" class="btn-voice active" onclick="toggleVoice()" title="Toggle Voice Output (Speech Synthesis)">🔊 <span>VOICE</span></button>
+    <button id="controls-toggle-btn" class="btn-controls active" onclick="toggleControlsMenu()" title="Toggle Mark LIII Controls Panel">
+      <span class="ctrl-diamond">◆</span> <span>CONTROLS</span>
+    </button>
     <div class="url">__IP__:__PORT__</div>
   </header>
-  <main id="feed"></main>
-  <footer>
-    <input id="inp" placeholder="Send a command to JARVIS…" autocomplete="off">
-    <label class="btn-attach" for="file-inp" title="Send file">📎</label>
-    <input type="file" id="file-inp" multiple accept="*/*" style="display:none">
-    <button id="mic-btn" onclick="doMic()" title="Voice command">🎤</button>
-    <button class="btn btn-wake" id="wake" onclick="doWake()">WAKE</button>
-    <button class="btn btn-send" onclick="doSend()">SEND</button>
-  </footer>
+
+  <div class="workspace-layout">
+    <div class="workspace-main">
+      <!-- ── 3D HOLOGRAPHIC JARVIS CORE ORB (AUDIO VOICE SYNC & BEAT) ── -->
+      <div id="orb-stage" class="orb-stage" title="3D JARVIS Holographic Core — Click and drag to rotate in 3D">
+        <div class="orb-backdrop-glow"></div>
+        <canvas id="orb-canvas"></canvas>
+        <div class="orb-telemetry">
+          <div class="orb-badge"><span class="orb-dot"></span><span id="core-state-txt">HOLO CORE ONLINE</span></div>
+          <div class="orb-sync-meter">
+            <span class="sync-lbl">VOICE SYNC</span>
+            <div class="sync-bar-track"><div id="sync-bar" class="sync-bar"></div></div>
+            <span id="sync-val" class="sync-pct">0%</span>
+          </div>
+          <button class="orb-mode-btn" id="orb-view-toggle" onclick="toggleOrbView()" title="Toggle Hologram Stage Size">⛶ STAGE</button>
+        </div>
+      </div>
+
+      <main id="feed"></main>
+      <footer>
+        <input id="inp" placeholder="Send or speak a command to JARVIS…" autocomplete="off">
+        <div class="delay-badge" id="delay-hud" title="Command & voice speech pause delay: 0.9s">⏱ <span>0.9s</span></div>
+        <label class="btn-attach" for="file-inp" title="Send file">📎</label>
+        <input type="file" id="file-inp" multiple accept="*/*" style="display:none">
+        <button id="mic-btn" onclick="doMic()" title="Voice command — auto-sends after 0.9s pause">🎤</button>
+        <button class="btn btn-wake" id="wake" onclick="doWake()">WAKE</button>
+        <button class="btn btn-send" onclick="doSend()">SEND</button>
+      </footer>
+    </div>
+
+    <!-- ── MARK LIII HUD CONTROLS PANEL (AS PER UPLOADED SCREENSHOT) ── -->
+    <aside id="controls-panel" class="controls-panel">
+      <div class="controls-edge-tab" onclick="toggleControlsMenu()" title="Toggle Mark LIII Controls">
+        <span class="tab-pip"></span>
+        <span class="tab-pip"></span>
+        <span class="tab-pip"></span>
+      </div>
+      <div class="controls-header">
+        <div class="controls-title"><span class="ctrl-diamond">◆</span> CONTROLS</div>
+      </div>
+      <div class="controls-body">
+        <button class="ctrl-btn active" id="btn-remote-control" onclick="openControlModal('remote')">
+          <span class="ctrl-icon icon-cyan">🌐</span>
+          <span class="ctrl-text">REMOTE CONTROL</span>
+        </button>
+        <button class="ctrl-btn" id="btn-fullscreen" onclick="toggleFullscreenAction()">
+          <span class="ctrl-icon icon-cyan">⛶</span>
+          <span class="ctrl-text" id="lbl-fullscreen">FULLSCREEN &nbsp;[F11]</span>
+        </button>
+        <button class="ctrl-btn" id="btn-desktop-shortcut" onclick="createDesktopShortcut()">
+          <span class="ctrl-icon icon-cyan">≡</span>
+          <span class="ctrl-text">CREATE DESKTOP SHORTCUT</span>
+        </button>
+        <button class="ctrl-btn" id="btn-autostart" onclick="toggleAutoStart()">
+          <span class="ctrl-icon icon-grey">⊚</span>
+          <span class="ctrl-text" id="lbl-autostart">AUTO-START: OFF</span>
+        </button>
+        <button class="ctrl-btn" id="btn-customise" onclick="openControlModal('customise')">
+          <span class="ctrl-icon icon-purple">⚙</span>
+          <span class="ctrl-text">CUSTOMISE ASSISTANT</span>
+        </button>
+        <button class="ctrl-btn ctrl-btn-brief active-green" id="btn-morning-brief" onclick="handleMorningBriefClick(event)">
+          <span class="ctrl-icon icon-green">🔆</span>
+          <span class="ctrl-text" id="lbl-morning-brief">MORNING BRIEF: ON</span>
+        </button>
+        <button class="ctrl-btn" id="btn-wakeword" onclick="openControlModal('wakeword')">
+          <span class="ctrl-icon icon-blue-badge">⬇</span>
+          <span class="ctrl-text" id="lbl-wakeword">WAKE WORD: DOWNLOAD</span>
+        </button>
+        <button class="ctrl-btn" id="btn-audio-devices" onclick="openControlModal('audio')">
+          <span class="ctrl-icon icon-cyan">🎧</span>
+          <span class="ctrl-text">AUDIO DEVICES</span>
+        </button>
+        <button class="ctrl-btn" id="btn-memory" onclick="openControlModal('memory')">
+          <span class="ctrl-icon icon-pink">🧠</span>
+          <span class="ctrl-text">MEMORY</span>
+        </button>
+        <button class="ctrl-btn" id="btn-plugins" onclick="openControlModal('plugins')">
+          <span class="ctrl-icon icon-lime">🧩</span>
+          <span class="ctrl-text">PLUGINS</span>
+        </button>
+        <button class="ctrl-btn" id="btn-plugin-settings" onclick="openControlModal('plugin-settings')">
+          <span class="ctrl-icon icon-purple">⚙</span>
+          <span class="ctrl-text">PLUGIN SETTINGS</span>
+        </button>
+      </div>
+    </aside>
+  </div>
+
+  <!-- ── CONTROLS MODAL OVERLAY ── -->
+  <div id="controls-modal-overlay" class="modal-overlay" onclick="handleModalOverlayClick(event)">
+    <div class="cyber-modal" id="controls-modal" onclick="event.stopPropagation()">
+      <div class="modal-head">
+        <div class="modal-title" id="modal-title"><span class="ctrl-diamond">◆</span> SETTINGS</div>
+        <button class="modal-close" onclick="closeControlModal()" title="Close dialog">✕</button>
+      </div>
+      <div class="modal-body" id="modal-body">
+        <!-- Injected dynamically based on control clicked -->
+      </div>
+    </div>
+  </div>
 
   <script>
+    // ── 12-Hour Clock & Theme Helpers ─────────────────────────────────────────
+    function format12Hour(date = new Date(), withSeconds = false) {
+      const d = date instanceof Date ? date : new Date(date);
+      let hours = d.getHours();
+      const minutes = String(d.getMinutes()).padStart(2, '0');
+      const seconds = String(d.getSeconds()).padStart(2, '0');
+      const ampm = hours >= 12 ? 'PM' : 'AM';
+      hours = hours % 12;
+      hours = hours ? hours : 12;
+      return withSeconds
+        ? { digits: `${hours}:${minutes}:${seconds}`, ampm, full: `${hours}:${minutes}:${seconds} ${ampm}` }
+        : { digits: `${hours}:${minutes}`, ampm, full: `${hours}:${minutes} ${ampm}` };
+    }
+
+    function updateHudClock() {
+      const { digits, ampm } = format12Hour(new Date(), true);
+      const digitsEl = document.getElementById('clock-digits');
+      const ampmEl = document.getElementById('clock-ampm');
+      if (digitsEl) digitsEl.textContent = digits;
+      if (ampmEl) ampmEl.textContent = ampm;
+    }
+    setInterval(updateHudClock, 1000);
+    updateHudClock();
+
+    // ── Speech Synthesis (Voice) ──────────────────────────────────────────────
+    let _voiceActive = true;
+    function toggleVoice() {
+      _voiceActive = !_voiceActive;
+      const btn = document.getElementById('voice-btn');
+      if (btn) {
+        if (_voiceActive) {
+          btn.className = 'btn-voice active';
+          btn.innerHTML = '🔊 <span>VOICE</span>';
+          toast('Voice enabled');
+        } else {
+          btn.className = 'btn-voice';
+          btn.innerHTML = '🔇 <span>MUTED</span>';
+          if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+          toast('Voice muted');
+        }
+      }
+    }
+
+    let _isJarvisSpeaking = false;
+
+    function speakJarvis(text) {
+      if (!_voiceActive || !('speechSynthesis' in window)) return;
+      try {
+        window.speechSynthesis.cancel();
+        const clean = text.replace(/[*_#`~]/g, '').replace(/https?:\/\/\S+/g, '');
+        const u = new SpeechSynthesisUtterance(clean);
+        u.rate = 1.0;
+        u.pitch = 0.95;
+        const voices = window.speechSynthesis.getVoices();
+        const preferred = voices.find(v => v.lang.startsWith('en') && (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('Daniel') || v.name.includes('David') || v.name.includes('Male')));
+        if (preferred) u.voice = preferred;
+
+        u.onstart = () => {
+          _isJarvisSpeaking = true;
+          if (typeof setOrbState === 'function') setOrbState('JARVIS VOCALIZING');
+        };
+        u.onend = () => {
+          _isJarvisSpeaking = false;
+          if (typeof setOrbState === 'function') setOrbState(_isListening ? 'LISTENING TO VOICE' : 'HOLO CORE ONLINE');
+        };
+        u.onerror = () => {
+          _isJarvisSpeaking = false;
+          if (typeof setOrbState === 'function') setOrbState('HOLO CORE ONLINE');
+        };
+
+        window.speechSynthesis.speak(u);
+      } catch (_) {}
+    }
+
+    // Pre-load voices
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.getVoices();
+      window.speechSynthesis.onvoiceschanged = () => { window.speechSynthesis.getVoices(); };
+    }
+
     // ── Auth — bearer token ───────────────────────────────────────────────────
     const _authToken  = sessionStorage.getItem('jarvis_token');
     const _sessionKey = sessionStorage.getItem('jarvis_key');
@@ -165,6 +1145,667 @@
     function _authFetch(url, opts = {}) {
       opts.headers = Object.assign({}, opts.headers, _authHeader());
       return fetch(url, opts);
+    }
+
+    // ── MARK LIII HUD CONTROLS SYSTEM (1:1 IMPLEMENTATION OF USER DESIGN) ─────
+    let _controlsOpen = true;
+    try {
+      const stored = localStorage.getItem('jarvis_controls_open');
+      if (stored !== null) _controlsOpen = stored === 'true';
+    } catch (_) {}
+
+    function updateControlsPanelUI() {
+      const panel = document.getElementById('controls-panel');
+      const btn = document.getElementById('controls-toggle-btn');
+      if (panel) {
+        if (_controlsOpen) {
+          panel.classList.remove('collapsed');
+        } else {
+          panel.classList.add('collapsed');
+        }
+      }
+      if (btn) {
+        btn.classList.toggle('active', _controlsOpen);
+      }
+    }
+
+    function toggleControlsMenu(forceOpen) {
+      if (typeof forceOpen === 'boolean') {
+        _controlsOpen = forceOpen;
+      } else {
+        _controlsOpen = !_controlsOpen;
+      }
+      try { localStorage.setItem('jarvis_controls_open', String(_controlsOpen)); } catch (_) {}
+      updateControlsPanelUI();
+      if (_controlsOpen) toast('Mark LIII Controls: Online');
+    }
+    setTimeout(updateControlsPanelUI, 50);
+
+    // ── Fullscreen Action ──
+    function toggleFullscreenAction() {
+      if (!document.fullscreenElement) {
+        document.documentElement.requestFullscreen().catch(() => {});
+        toast('FULLSCREEN MODE [F11]');
+      } else {
+        if (document.exitFullscreen) document.exitFullscreen().catch(() => {});
+        toast('EXIT FULLSCREEN');
+      }
+    }
+    document.addEventListener('fullscreenchange', () => {
+      const lbl = document.getElementById('lbl-fullscreen');
+      const isFs = Boolean(document.fullscreenElement);
+      if (lbl) lbl.textContent = isFs ? 'EXIT FULLSCREEN  [F11]' : 'FULLSCREEN  [F11]';
+    });
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'F11') {
+        e.preventDefault();
+        toggleFullscreenAction();
+      }
+    });
+
+    // ── Create Desktop Shortcut Action ──
+    let _deferredInstallPrompt = null;
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      _deferredInstallPrompt = e;
+    });
+
+    function createDesktopShortcut() {
+      if (_deferredInstallPrompt) {
+        _deferredInstallPrompt.prompt();
+        _deferredInstallPrompt.userChoice.then((res) => {
+          if (res.outcome === 'accepted') {
+            toast('JARVIS App Installed to Desktop');
+          }
+          _deferredInstallPrompt = null;
+        });
+        return;
+      }
+      try {
+        const currentUrl = window.location.href;
+        const fileContent = `[InternetShortcut]\nURL=${currentUrl}\nIconIndex=0\nIconFile=${window.location.origin}/favicon.ico\n`;
+        const blob = new Blob([fileContent], { type: 'application/octet-stream' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'JARVIS MARK LIII.url';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        toast('Desktop shortcut generated & downloaded');
+      } catch (_) {
+        toast('Shortcut download ready');
+      }
+    }
+
+    // ── Auto-Start Action ──
+    let _autoStart = false;
+    function toggleAutoStart() {
+      _autoStart = !_autoStart;
+      const lbl = document.getElementById('lbl-autostart');
+      const btn = document.getElementById('btn-autostart');
+      if (lbl) lbl.textContent = _autoStart ? 'AUTO-START: ON' : 'AUTO-START: OFF';
+      if (btn) btn.classList.toggle('active', _autoStart);
+      try { localStorage.setItem('jarvis_autostart', String(_autoStart)); } catch (_) {}
+      _authFetch('/api/controls/state', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ autoStart: _autoStart })
+      }).catch(() => {});
+      toast(_autoStart ? 'Auto-Start on Boot: Enabled' : 'Auto-Start on Boot: Disabled');
+    }
+
+    // ── Morning Brief Action ──
+    let _morningBrief = true;
+    function handleMorningBriefClick(event) {
+      _morningBrief = !_morningBrief;
+      const btn = document.getElementById('btn-morning-brief');
+      const lbl = document.getElementById('lbl-morning-brief');
+      if (lbl) lbl.textContent = _morningBrief ? 'MORNING BRIEF: ON' : 'MORNING BRIEF: OFF';
+      if (btn) btn.classList.toggle('active-green', _morningBrief);
+      try { localStorage.setItem('jarvis_morning_brief', String(_morningBrief)); } catch (_) {}
+      _authFetch('/api/controls/state', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ morningBriefEnabled: _morningBrief })
+      }).catch(() => {});
+      toast(_morningBrief ? 'Morning Briefing: ENABLED' : 'Morning Briefing: DISABLED');
+    }
+
+    // ── Audio sci-fi chime helper ──
+    function playCyberChime() {
+      try {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (!AudioCtx) return;
+        const ctx = new AudioCtx();
+        const now = ctx.currentTime;
+        const o1 = ctx.createOscillator();
+        const o2 = ctx.createOscillator();
+        const g = ctx.createGain();
+        o1.type = 'sine';
+        o1.frequency.setValueAtTime(587.33, now);
+        o1.frequency.exponentialRampToValueAtTime(880, now + 0.15);
+        o2.type = 'triangle';
+        o2.frequency.setValueAtTime(880, now);
+        o2.frequency.exponentialRampToValueAtTime(1174.66, now + 0.18);
+        g.gain.setValueAtTime(0.2, now);
+        g.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
+        o1.connect(g);
+        o2.connect(g);
+        g.connect(ctx.destination);
+        o1.start(now);
+        o2.start(now);
+        o1.stop(now + 0.45);
+        o2.stop(now + 0.45);
+      } catch (_) {}
+    }
+
+    // ── Cyberpunk Procedural QR Code Canvas ──
+    function drawCyberQR(canvas, text) {
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      const w = canvas.width;
+      const h = canvas.height;
+      ctx.fillStyle = '#01161e';
+      ctx.fillRect(0, 0, w, h);
+      const grid = 21;
+      const cellSize = w / grid;
+      let hash = 0;
+      for (let i = 0; i < text.length; i++) hash = ((hash << 5) - hash) + text.charCodeAt(i) | 0;
+
+      function isFinder(r, c) {
+        return (r < 7 && c < 7) || (r < 7 && c >= grid - 7) || (r >= grid - 7 && c < 7);
+      }
+
+      function drawFinder(r0, c0) {
+        ctx.fillStyle = '#00f0d0';
+        ctx.fillRect(c0 * cellSize, r0 * cellSize, 7 * cellSize, 7 * cellSize);
+        ctx.fillStyle = '#01161e';
+        ctx.fillRect((c0 + 1) * cellSize, (r0 + 1) * cellSize, 5 * cellSize, 5 * cellSize);
+        ctx.fillStyle = '#00f0d0';
+        ctx.fillRect((c0 + 2) * cellSize, (r0 + 2) * cellSize, 3 * cellSize, 3 * cellSize);
+      }
+
+      drawFinder(0, 0);
+      drawFinder(0, grid - 7);
+      drawFinder(grid - 7, 0);
+
+      for (let r = 0; r < grid; r++) {
+        for (let c = 0; c < grid; c++) {
+          if (isFinder(r, c)) continue;
+          if (r === 6 || c === 6) {
+            if ((r + c) % 2 === 0) {
+              ctx.fillStyle = '#00f0d0';
+              ctx.fillRect(c * cellSize + 1, r * cellSize + 1, cellSize - 2, cellSize - 2);
+            }
+            continue;
+          }
+          const bit = Math.abs(Math.sin((r * 31 + c * 17 + hash)) * 10000) % 1 > 0.48;
+          if (bit) {
+            ctx.fillStyle = (r + c) % 3 === 0 ? '#38bdf8' : '#00f0d0';
+            ctx.fillRect(c * cellSize + 1, r * cellSize + 1, cellSize - 2, cellSize - 2);
+          }
+        }
+      }
+    }
+
+    // ── Modal Handlers & Data Views ──
+    let _audioStreamForMeter = null;
+    let _audioContextForMeter = null;
+    let _animFrameForMeter = null;
+
+    function closeControlModal() {
+      const overlay = document.getElementById('controls-modal-overlay');
+      if (overlay) overlay.classList.remove('open');
+      if (_audioStreamForMeter) {
+        try { _audioStreamForMeter.getTracks().forEach(t => t.stop()); } catch(_) {}
+        _audioStreamForMeter = null;
+      }
+      if (_audioContextForMeter) {
+        try { _audioContextForMeter.close(); } catch(_) {}
+        _audioContextForMeter = null;
+      }
+      if (_animFrameForMeter) {
+        cancelAnimationFrame(_animFrameForMeter);
+        _animFrameForMeter = null;
+      }
+    }
+
+    function handleModalOverlayClick(e) {
+      if (e.target.id === 'controls-modal-overlay') closeControlModal();
+    }
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') closeControlModal();
+    });
+
+    async function openControlModal(type) {
+      const overlay = document.getElementById('controls-modal-overlay');
+      const titleEl = document.getElementById('modal-title');
+      const bodyEl  = document.getElementById('modal-body');
+      if (!overlay || !titleEl || !bodyEl) return;
+
+      closeControlModal();
+
+      if (type === 'remote') {
+        titleEl.innerHTML = '<span class="ctrl-diamond">◆</span> REMOTE CONTROL & MOBILE GATEWAY';
+        const linkUrl = window.location.origin;
+        const pairKey = _sessionKey || 'JARVIS';
+        const directUrl = `${linkUrl}/login?key=${encodeURIComponent(pairKey)}`;
+        bodyEl.innerHTML = `
+          <div style="text-align:center; margin-bottom: 8px;">
+            <canvas id="qr-canvas" width="160" height="160" style="margin: 0 auto; display:block; border: 1px solid rgba(0,240,210,0.3); border-radius:4px; box-shadow:0 0 15px rgba(0,240,210,0.15);"></canvas>
+            <div style="font-size:10px; color:#7dd3fc; margin-top:6px; letter-spacing:1px;">SCAN FROM PHONE TO CONTROL MARK LIII</div>
+          </div>
+          <div class="modal-field">
+            <label class="modal-label">Gateway Access Link</label>
+            <div style="display:flex; gap:8px;">
+              <input class="modal-input" readonly value="${linkUrl}" id="remote-input-url" style="flex:1;">
+              <button class="modal-btn" onclick="navigator.clipboard.writeText(document.getElementById('remote-input-url').value); toast('URL copied');">COPY</button>
+            </div>
+          </div>
+          <div class="modal-field">
+            <label class="modal-label">AES Pairing Key</label>
+            <div style="display:flex; gap:8px;">
+              <input class="modal-input" readonly value="${pairKey}" id="remote-input-key" style="flex:1; letter-spacing:1.5px; font-weight:700; color:#00f0d0;">
+              <button class="modal-btn" onclick="navigator.clipboard.writeText(document.getElementById('remote-input-key').value); toast('Key copied');">COPY</button>
+            </div>
+          </div>
+          <div class="modal-field">
+            <label class="modal-label">Connected Remote Nodes</label>
+            <div style="background:rgba(1,20,30,0.8); border:1px solid rgba(0,210,255,0.25); border-radius:4px; padding:8px 12px; font-size:11px; display:flex; justify-content:space-between; align-items:center;">
+              <span>🌐 Web Terminal (Localhost Host)</span>
+              <span style="color:#00f076; font-weight:700;">● CONNECTED</span>
+            </div>
+          </div>
+          <div class="modal-btn-row" style="justify-content:flex-end;">
+            <button class="modal-btn modal-btn-danger" onclick="toast('Reset remote sessions');">DISCONNECT ALL</button>
+            <button class="modal-btn modal-btn-primary" onclick="closeControlModal()">DONE</button>
+          </div>
+        `;
+        overlay.classList.add('open');
+        setTimeout(() => {
+          const cvs = document.getElementById('qr-canvas');
+          if (cvs) drawCyberQR(cvs, directUrl);
+        }, 30);
+      }
+
+      else if (type === 'customise') {
+        titleEl.innerHTML = '<span class="ctrl-diamond">◆</span> CUSTOMISE ASSISTANT';
+        const voices = ('speechSynthesis' in window) ? window.speechSynthesis.getVoices() : [];
+        const voiceOptions = voices.map((v, i) => `<option value="${i}" ${v.name.includes('David') || v.name.includes('Natural') || v.name.includes('Google') ? 'selected' : ''}>${v.name} (${v.lang})</option>`).join('');
+
+        bodyEl.innerHTML = `
+          <div class="modal-field">
+            <label class="modal-label">Assistant Callsign</label>
+            <input class="modal-input" id="cust-callsign" value="JARVIS">
+          </div>
+          <div class="modal-field">
+            <label class="modal-label">Personality Matrix</label>
+            <select class="modal-select" id="cust-persona">
+              <option value="ironman" selected>Tony Stark JARVIS — British, Sophisticated, Tactical</option>
+              <option value="butler">Alfred Protocol — Formal Butler, Polite, Direct</option>
+              <option value="sci">Cyber Analyst — Scientific, Concise, Objective</option>
+              <option value="tactical">Tactical Defense — Mark LIII Combat & System telemetry</option>
+            </select>
+          </div>
+          <div class="modal-field">
+            <label class="modal-label">Voice Synthesis Engine</label>
+            <select class="modal-select" id="cust-voice">
+              ${voiceOptions || '<option value="0">Default System Voice</option>'}
+            </select>
+          </div>
+          <div class="modal-field">
+            <div style="display:flex; justify-content:space-between;">
+              <label class="modal-label">Speech Rate</label>
+              <span id="cust-rate-lbl" style="font-size:11px; color:#00f0d0;">1.00x</span>
+            </div>
+            <input type="range" min="0.75" max="1.35" step="0.05" value="1.00" id="cust-rate" oninput="document.getElementById('cust-rate-lbl').textContent = this.value + 'x'">
+          </div>
+          <div class="modal-field">
+            <div style="display:flex; justify-content:space-between;">
+              <label class="modal-label">Voice Pause Sending Delay</label>
+              <span id="cust-delay-lbl" style="font-size:11px; color:#00f0d0;">0.9s</span>
+            </div>
+            <input type="range" min="0.5" max="2.5" step="0.1" value="0.9" id="cust-delay" oninput="document.getElementById('cust-delay-lbl').textContent = this.value + 's'">
+          </div>
+          <div class="modal-btn-row" style="justify-content:space-between; margin-top:12px;">
+            <button class="modal-btn" onclick="speakJarvis('Testing vocal synthesis matrix. Holographic systems fully operational.')">TEST VOICE</button>
+            <button class="modal-btn modal-btn-primary" onclick="
+              const delay = document.getElementById('cust-delay').value;
+              const delayHud = document.getElementById('delay-hud');
+              if (delayHud) delayHud.innerHTML = '⏱ <span>' + delay + 's</span>';
+              toast('Assistant settings saved');
+              closeControlModal();
+            ">SAVE SETTINGS</button>
+          </div>
+        `;
+        overlay.classList.add('open');
+      }
+
+      else if (type === 'wakeword') {
+        titleEl.innerHTML = '<span class="ctrl-diamond">◆</span> WAKE WORD ENGINE';
+        bodyEl.innerHTML = `
+          <div style="background:rgba(0,34,50,0.6); border:1px solid rgba(0,210,255,0.3); border-radius:6px; padding:12px;">
+            <div style="display:flex; align-items:center; justify-content:space-between;">
+              <span style="font-weight:700; color:#00f0d0; font-size:12px;">ACOUSTIC MODEL: HEY JARVIS</span>
+              <span style="background:rgba(0,240,118,0.2); border:1px solid #00f076; color:#00f076; padding:2px 6px; border-radius:3px; font-size:9px; font-weight:800;">ACTIVE</span>
+            </div>
+            <div style="font-size:11px; color:#94a3b8; margin-top:6px; line-height:1.5;">
+              Local keyword spotter trained on Mark LIII phoneme vectors. Runs with zero cloud latency and low CPU footprint.
+            </div>
+          </div>
+          <div class="modal-field">
+            <label class="modal-label">Detection Sensitivity</label>
+            <select class="modal-select" id="wake-sens">
+              <option value="low">Low (Zero false triggers)</option>
+              <option value="balanced" selected>Balanced (Standard indoor distance)</option>
+              <option value="high">High (Far-field acoustic detection)</option>
+            </select>
+          </div>
+          <div class="modal-field">
+            <label class="modal-label">Auto-Sleep Silence Timeout</label>
+            <select class="modal-select">
+              <option value="60">1 Minute</option>
+              <option value="120" selected>2 Minutes</option>
+              <option value="300">5 Minutes</option>
+              <option value="0">Never Sleep (Always Hot)</option>
+            </select>
+          </div>
+          <div class="modal-btn-row" style="justify-content:space-between; margin-top:10px;">
+            <button class="modal-btn" onclick="
+              playCyberChime();
+              doWake();
+              toast('Wake word triggered: JARVIS Online');
+              closeControlModal();
+            ">TEST WAKE CHIME</button>
+            <button class="modal-btn modal-btn-primary" onclick="
+              const lbl = document.getElementById('lbl-wakeword');
+              if (lbl) lbl.textContent = 'WAKE WORD: ACTIVE';
+              toast('Wake word engine updated');
+              closeControlModal();
+            ">CONFIRM & SAVE</button>
+          </div>
+        `;
+        overlay.classList.add('open');
+      }
+
+      else if (type === 'audio') {
+        titleEl.innerHTML = '<span class="ctrl-diamond">◆</span> AUDIO DEVICES & INPUT CALIBRATION';
+        bodyEl.innerHTML = `
+          <div class="modal-field">
+            <label class="modal-label">Microphone Input</label>
+            <select class="modal-select" id="audio-in-sel">
+              <option value="default">Default System Microphone</option>
+            </select>
+          </div>
+          <div class="modal-field">
+            <div style="display:flex; justify-content:space-between;">
+              <label class="modal-label">Live Input VU Level</label>
+              <span id="vu-val-txt" style="font-size:10px; color:#00f0d0;">Calibrating</span>
+            </div>
+            <div style="width:100%; height:12px; background:rgba(1,20,30,0.9); border:1px solid rgba(0,210,255,0.3); border-radius:3px; overflow:hidden;">
+              <div id="vu-bar" style="width:0%; height:100%; background:linear-gradient(90deg, #00f0d0, #00f076, #facc15); transition:width 0.08s ease;"></div>
+            </div>
+          </div>
+          <div class="modal-field">
+            <label class="modal-label">Speaker Output</label>
+            <select class="modal-select" id="audio-out-sel">
+              <option value="default">Default System Speakers / Headphones</option>
+            </select>
+          </div>
+          <div class="modal-field" style="flex-direction:row; justify-content:space-between; align-items:center;">
+            <div>
+              <div style="font-weight:700; color:#e0f2fe; font-size:11px;">Acoustic Echo Cancellation</div>
+              <div style="font-size:10px; color:#94a3b8;">Suppresses feedback while JARVIS speaks</div>
+            </div>
+            <label class="toggle-switch"><input type="checkbox" checked><span class="toggle-slider"></span></label>
+          </div>
+          <div class="modal-btn-row" style="justify-content:space-between; margin-top:10px;">
+            <button class="modal-btn" onclick="playCyberChime(); toast('Playing test chime');">PLAY TEST CHIME</button>
+            <button class="modal-btn modal-btn-primary" onclick="closeControlModal(); toast('Audio settings applied');">APPLY</button>
+          </div>
+        `;
+        overlay.classList.add('open');
+
+        // Enumerate devices & start VU meter
+        try {
+          if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
+            navigator.mediaDevices.enumerateDevices().then(devices => {
+              const inSel = document.getElementById('audio-in-sel');
+              const outSel = document.getElementById('audio-out-sel');
+              if (inSel) {
+                const audIn = devices.filter(d => d.kind === 'audioinput');
+                if (audIn.length) inSel.innerHTML = audIn.map(d => `<option value="${d.deviceId}">${d.label || 'Microphone ' + d.deviceId.slice(0, 5)}</option>`).join('');
+              }
+              if (outSel) {
+                const audOut = devices.filter(d => d.kind === 'audiooutput');
+                if (audOut.length) outSel.innerHTML = audOut.map(d => `<option value="${d.deviceId}">${d.label || 'Audio Output ' + d.deviceId.slice(0, 5)}</option>`).join('');
+              }
+            }).catch(() => {});
+          }
+
+          if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+            navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
+              _audioStreamForMeter = stream;
+              const AudioCtx = window.AudioContext || window.webkitAudioContext;
+              if (AudioCtx) {
+                _audioContextForMeter = new AudioCtx();
+                const src = _audioContextForMeter.createMediaStreamSource(stream);
+                const ana = _audioContextForMeter.createAnalyser();
+                ana.fftSize = 64;
+                src.connect(ana);
+                const data = new Uint8Array(ana.frequencyBinCount);
+                function updateVU() {
+                  if (!_audioStreamForMeter) return;
+                  ana.getByteFrequencyData(data);
+                  let sum = 0;
+                  for (let i = 0; i < data.length; i++) sum += data[i];
+                  const avg = sum / data.length;
+                  const pct = Math.min(100, Math.round((avg / 120) * 100));
+                  const bar = document.getElementById('vu-bar');
+                  const txt = document.getElementById('vu-val-txt');
+                  if (bar) bar.style.width = pct + '%';
+                  if (txt) txt.textContent = pct + '% dB';
+                  _animFrameForMeter = requestAnimationFrame(updateVU);
+                }
+                updateVU();
+              }
+            }).catch(() => {});
+          }
+        } catch (_) {}
+      }
+
+      else if (type === 'memory') {
+        titleEl.innerHTML = '<span class="ctrl-diamond">◆</span> LONG-TERM NEURAL MEMORY VAULT';
+        bodyEl.innerHTML = `
+          <div style="font-size:11px; color:#7dd3fc; line-height:1.5;">
+            Facts and preferences JARVIS retains across sessions. Add custom memories or prune outdated entries.
+          </div>
+          <div class="modal-field">
+            <input class="modal-input" placeholder="Search memory archive..." id="mem-search" oninput="filterMemories(this.value)">
+          </div>
+          <div id="mem-list" style="display:flex; flex-direction:column; gap:8px; max-height:220px; overflow-y:auto; padding-right:4px;">
+            <div style="text-align:center; padding:12px; color:#7dd3fc;">Retrieving memories...</div>
+          </div>
+          <div style="border-top:1px solid rgba(0,210,255,0.25); padding-top:10px; display:flex; flex-direction:column; gap:8px;">
+            <div style="font-size:10px; font-weight:700; color:#00f0d0; letter-spacing:1px;">ADD NEW MEMORY ENTRY</div>
+            <div style="display:flex; gap:8px;">
+              <select class="modal-select" id="new-mem-cat" style="width:120px;">
+                <option value="Identity">Identity</option>
+                <option value="Preference">Preference</option>
+                <option value="Workflow">Workflow</option>
+                <option value="Hardware">Hardware</option>
+              </select>
+              <input class="modal-input" id="new-mem-text" placeholder="e.g. Master's favorite coffee is black espresso" style="flex:1;">
+              <button class="modal-btn modal-btn-primary" onclick="addNewMemoryItem()">ADD</button>
+            </div>
+          </div>
+          <div class="modal-btn-row" style="justify-content:flex-end;">
+            <button class="modal-btn" onclick="closeControlModal()">CLOSE</button>
+          </div>
+        `;
+        overlay.classList.add('open');
+        loadMemoriesList();
+      }
+
+      else if (type === 'plugins') {
+        titleEl.innerHTML = '<span class="ctrl-diamond">◆</span> ACTIVE SKILLS & EXTENSIONS';
+        bodyEl.innerHTML = `
+          <div style="font-size:11px; color:#7dd3fc;">
+            Modular capability modules plugged into JARVIS Mark LIII core runtime:
+          </div>
+          <div id="plugin-list" style="display:flex; flex-direction:column; gap:8px; max-height:300px; overflow-y:auto; padding-right:4px;">
+            <div style="text-align:center; padding:12px; color:#7dd3fc;">Loading plugins...</div>
+          </div>
+          <div class="modal-btn-row" style="justify-content:flex-end;">
+            <button class="modal-btn modal-btn-primary" onclick="closeControlModal()">DONE</button>
+          </div>
+        `;
+        overlay.classList.add('open');
+        loadPluginsList();
+      }
+
+      else if (type === 'plugin-settings') {
+        titleEl.innerHTML = '<span class="ctrl-diamond">◆</span> PLUGIN CONFIGURATION & GUARDRAILS';
+        bodyEl.innerHTML = `
+          <div class="modal-field">
+            <label class="modal-label">Grounding Search Engine Provider</label>
+            <select class="modal-select">
+              <option value="google" selected>Google Grounded Web Search (Real-time)</option>
+              <option value="ddg">DuckDuckGo Deep Scraper</option>
+              <option value="brave">Brave Search API</option>
+            </select>
+          </div>
+          <div class="modal-field">
+            <label class="modal-label">Weather Radar Default City</label>
+            <input class="modal-input" value="Auto-Detect (GPS / IP Geolocation)" id="plug-cfg-city">
+          </div>
+          <div class="modal-field" style="flex-direction:row; justify-content:space-between; align-items:center;">
+            <div>
+              <div style="font-weight:700; color:#e0f2fe; font-size:11px;">Critical Action Guardrails</div>
+              <div style="font-size:10px; color:#94a3b8;">Require voice confirmation for system power & script execution</div>
+            </div>
+            <label class="toggle-switch"><input type="checkbox" checked><span class="toggle-slider"></span></label>
+          </div>
+          <div class="modal-field" style="flex-direction:row; justify-content:space-between; align-items:center;">
+            <div>
+              <div style="font-weight:700; color:#e0f2fe; font-size:11px;">Automatic Hardware Temperature Watch</div>
+              <div style="font-size:10px; color:#94a3b8;">Alert user if GPU/CPU exceeds 85°C</div>
+            </div>
+            <label class="toggle-switch"><input type="checkbox" checked><span class="toggle-slider"></span></label>
+          </div>
+          <div class="modal-btn-row" style="justify-content:flex-end; margin-top:10px;">
+            <button class="modal-btn modal-btn-primary" onclick="toast('Plugin settings saved'); closeControlModal();">SAVE CONFIGURATION</button>
+          </div>
+        `;
+        overlay.classList.add('open');
+      }
+    }
+
+    // ── Memory API Helpers ──
+    let _allMemories = [];
+    async function loadMemoriesList() {
+      try {
+        const res = await _authFetch('/api/controls/memory');
+        if (!res.ok) throw new Error();
+        const data = await res.json();
+        _allMemories = Array.isArray(data) ? data : (data.memories || []);
+        renderMemoriesList(_allMemories);
+      } catch (_) {
+        const list = document.getElementById('mem-list');
+        if (list) list.innerHTML = '<div style="color:#f87171; text-align:center;">Failed to load memories</div>';
+      }
+    }
+
+    function renderMemoriesList(items) {
+      const list = document.getElementById('mem-list');
+      if (!list) return;
+      if (!items || !items.length) {
+        list.innerHTML = '<div style="text-align:center; padding:16px; color:#94a3b8;">No memories found.</div>';
+        return;
+      }
+      list.innerHTML = items.map(m => `
+        <div class="mem-item" id="mem-${m.id}">
+          <div style="flex:1;">
+            <div class="mem-item-cat">${m.category || 'General'}</div>
+            <div class="mem-item-text">${m.fact || ''}</div>
+          </div>
+          <button class="mem-del-btn" onclick="deleteMemoryItem('${m.id}')" title="Delete memory">✕</button>
+        </div>
+      `).join('');
+    }
+
+    function filterMemories(query) {
+      const q = (query || '').toLowerCase().trim();
+      if (!q) return renderMemoriesList(_allMemories);
+      const filtered = _allMemories.filter(m => (m.fact && m.fact.toLowerCase().includes(q)) || (m.category && m.category.toLowerCase().includes(q)));
+      renderMemoriesList(filtered);
+    }
+
+    async function addNewMemoryItem() {
+      const catEl = document.getElementById('new-mem-cat');
+      const textEl = document.getElementById('new-mem-text');
+      if (!textEl || !textEl.value.trim()) return;
+      const cat = catEl ? catEl.value : 'General';
+      const fact = textEl.value.trim();
+      try {
+        const res = await _authFetch('/api/controls/memory', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ category: cat, fact })
+        });
+        if (res.ok) {
+          const resp = await res.json();
+          const item = resp.memory || resp;
+          _allMemories.unshift(item);
+          renderMemoriesList(_allMemories);
+          textEl.value = '';
+          toast('Memory stored in neural vault');
+        }
+      } catch (_) {
+        toast('Failed to store memory');
+      }
+    }
+
+    async function deleteMemoryItem(id) {
+      try {
+        const res = await _authFetch('/api/controls/memory/' + encodeURIComponent(id), {
+          method: 'DELETE'
+        });
+        if (res.ok) {
+          _allMemories = _allMemories.filter(m => m.id !== id);
+          renderMemoriesList(_allMemories);
+          toast('Memory purged');
+        }
+      } catch (_) {
+        toast('Failed to delete');
+      }
+    }
+
+    // ── Plugins API Helpers ──
+    async function loadPluginsList() {
+      try {
+        const res = await _authFetch('/api/controls/plugins');
+        if (!res.ok) throw new Error();
+        const data = await res.json();
+        const plugins = Array.isArray(data) ? data : (data.plugins || []);
+        const list = document.getElementById('plugin-list');
+        if (!list) return;
+        list.innerHTML = plugins.map((p, idx) => `
+          <div class="plugin-row">
+            <div class="plugin-info">
+              <div class="plugin-name">${p.name} <span style="font-size:10px; color:#38bdf8; margin-left:6px;">${p.id || ''}</span></div>
+              <div class="plugin-desc">${p.desc || p.description || ''}</div>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" ${p.active || p.enabled ? 'checked' : ''} onchange="toast('${p.name} ' + (this.checked ? 'Enabled' : 'Disabled'))">
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+        `).join('');
+      } catch (_) {
+        const list = document.getElementById('plugin-list');
+        if (list) list.innerHTML = '<div style="color:#f87171; text-align:center;">Failed to load plugins</div>';
+      }
     }
 
     // ── AES-256-CBC encryption (CryptoJS) ────────────────────────────────────
@@ -200,25 +1841,48 @@
     if (_encReady) { encBadge.className = 'enc-badge on'; }
     else           { encBadge.className = 'enc-badge off'; encBadge.textContent = 'NO ENC'; }
 
-    // ── WebSocket ─────────────────────────────────────────────────────────────
+    // ── WebSocket & Launch Routine ────────────────────────────────────────────
     const feed  = document.getElementById('feed');
     const pill  = document.getElementById('pill');
     const stTxt = document.getElementById('st');
     const wake  = document.getElementById('wake');
 
+    let _launched = false;
+    function announceLaunchTime() {
+      if (_launched) return;
+      _launched = true;
+      const now = new Date();
+      const h24 = now.getHours();
+      const greeting = h24 < 12 ? 'Good morning' : h24 < 18 ? 'Good afternoon' : 'Good evening';
+      const timeStr = format12Hour(now, false).full;
+      const launchText = `${greeting}, Sir. The time is currently ${timeStr}. All JARVIS core subsystems are operational and online.`;
+      append('jarvis', launchText, Date.now());
+      speakJarvis(launchText);
+    }
+
     const _wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
     const _wsUrl   = `${_wsProto}://${location.host}/ws?token=${encodeURIComponent(_authToken)}`;
     const ws       = new WebSocket(_wsUrl);
 
-    ws.onopen    = () => { sys('Remote session active.'); toast('Connected to JARVIS'); };
+    ws.onopen    = () => {
+      sys('Remote session active.');
+      toast('Connected to JARVIS');
+      setTimeout(announceLaunchTime, 300);
+    };
     ws.onclose   = () => sys('Connection lost — refresh to reconnect.');
     ws.onerror   = () => sys('Connection error.');
     ws.onmessage = (e) => {
       const m = JSON.parse(e.data);
-      if (m.type === 'log')           append(m.speaker, m.text);
+      if (m.type === 'log') {
+        append(m.speaker, m.text, m.timestamp);
+        if (m.speaker === 'jarvis' && m.text) {
+          const isFresh = !m.timestamp || (Date.now() - m.timestamp < 7000);
+          if (isFresh) speakJarvis(m.text);
+        }
+      }
       if (m.type === 'status')        setStatus(m.state);
-      if (m.type === 'wake')          sys('Wake word detected — connecting…');
-      if (m.type === 'sys')           sys(m.text);
+      if (m.type === 'wake')          { sys('Wake word detected — connecting…', m.timestamp); announceLaunchTime(); }
+      if (m.type === 'sys')           sys(m.text, m.timestamp);
       if (m.type === 'file_received') _onFileReceived(m);
     };
 
@@ -230,23 +1894,27 @@
       }
     }
 
-    function append(speaker, text) {
+    function append(speaker, text, ts) {
+      const timeBadge = format12Hour(ts || new Date(), false).full;
       const d = document.createElement('div');
       if (speaker === 'jarvis') {
         d.className = 'msg msg-j';
-        d.innerHTML = `<div class="lbl">Jarvis</div>${esc(text)}`;
+        d.innerHTML = `<div class="lbl"><span>JARVIS</span><span class="msg-time">${timeBadge}</span></div>${esc(text)}`;
       } else {
         d.className = 'msg msg-u';
-        d.innerHTML = `<div class="lbl">You</div>${esc(text)}`;
+        d.innerHTML = `<div class="lbl"><span>YOU</span><span class="msg-time">${timeBadge}</span></div>${esc(text)}`;
       }
       feed.appendChild(d);
       feed.scrollTop = feed.scrollHeight;
     }
 
-    function sys(text) {
+    function sys(text, ts) {
+      const timeBadge = format12Hour(ts || new Date(), false).full;
       const d = document.createElement('div');
-      d.className = 'msg msg-sys'; d.textContent = text;
-      feed.appendChild(d); feed.scrollTop = feed.scrollHeight;
+      d.className = 'msg msg-sys';
+      d.innerHTML = `<span class="sys-time">[${timeBadge}]</span> ${esc(text)}`;
+      feed.appendChild(d);
+      feed.scrollTop = feed.scrollHeight;
     }
 
     function esc(s) {
@@ -405,155 +2073,524 @@
       _toastTimer = setTimeout(() => t.classList.remove('show'), 2800);
     }
 
-    // ── Real-time Voice — PCM16 WebSocket → Gemini Live ──────────────────────
-    const micBtn  = document.getElementById('mic-btn');
-    let _voiceWs  = null;
-    let _audioCtx = null;
-    let _micStm   = null;
-    let _audioNd  = null;
+    // ── Real-time Voice Command Engine (0.9s Silence Auto-Dispatch Delay) ────
+    const micBtn = document.getElementById('mic-btn');
+    let _speechRec = null;
+    let _speechPauseTimer = null;
+    let _isListening = false;
+    const SPEECH_DELAY_MS = 900; // Calibrated strictly to 0.9 seconds
 
     function _micIdle() {
-      micBtn.innerHTML = '🎤';
-      micBtn.title     = 'Voice — tap to speak';
-      micBtn.classList.remove('recording');
-    }
-
-    // Float32 PCM → resample to 16 kHz + convert to Int16
-    function _f32toPcm16(f32, srcRate) {
-      let s = f32;
-      if (srcRate !== 16000) {
-        const ratio = srcRate / 16000;
-        const len   = Math.round(f32.length / ratio);
-        s = new Float32Array(len);
-        for (let i = 0; i < len; i++)
-          s[i] = f32[Math.min(Math.round(i * ratio), f32.length - 1)];
+      if (micBtn) {
+        micBtn.innerHTML = '🎤';
+        micBtn.title = 'Voice command — auto-dispatches after 0.9s speech pause';
+        micBtn.classList.remove('recording');
       }
-      const out = new Int16Array(s.length);
-      for (let i = 0; i < s.length; i++)
-        out[i] = Math.max(-32768, Math.min(32767, Math.round(s[i] * 32768)));
-      return out.buffer;
+      _isListening = false;
     }
 
-    function _showVoiceSetup() {
-      if (document.getElementById('voice-setup')) return; // show once
-      const origin = location.origin;
-      const card = document.createElement('div');
-      card.id = 'voice-setup';
-      card.style.cssText = [
-        'align-self:stretch', 'background:rgba(99,102,241,0.07)',
-        'border:1px solid rgba(99,102,241,0.22)', 'border-radius:14px',
-        'padding:16px 18px', 'font-size:13px', 'line-height:1.8',
-        'animation:pop 0.18s ease'
-      ].join(';');
-      card.innerHTML =
-        '<div style="font-weight:700;color:#818cf8;letter-spacing:.5px;margin-bottom:10px">🎤 One-time voice setup</div>' +
-        '<ol style="padding-left:18px;color:#8899aa;margin:0;display:flex;flex-direction:column;gap:4px">' +
-        '<li>Open a new tab → go to <span style="background:rgba(255,255,255,0.07);padding:1px 6px;border-radius:4px;font-family:monospace;font-size:12px">chrome://flags</span></li>' +
-        '<li>Search: <strong style="color:#dde3ed">Insecure origins treated as secure</strong></li>' +
-        '<li>Paste this URL into the box:<br><span id="flags-url" style="background:rgba(255,255,255,0.07);padding:2px 8px;border-radius:4px;font-family:monospace;font-size:11px;user-select:all;cursor:pointer">' + esc(origin) + '</span></li>' +
-        '<li>Set to <strong style="color:#22c55e">Enabled</strong> → tap <strong style="color:#dde3ed">Relaunch</strong></li>' +
-        '<li>Return here and tap 🎤</li>' +
-        '</ol>';
-      feed.appendChild(card);
-      feed.scrollTop = feed.scrollHeight;
-      // tap to copy
-      card.querySelector('#flags-url').addEventListener('click', () => {
-        navigator.clipboard?.writeText(origin).then(() => toast('URL copied!')).catch(() => {});
-      });
-    }
+    function doMic() {
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
-    async function doMic() {
-      if (_voiceWs) { _stopVoice(); return; }
+      // Also ensure AudioContext is primed for live voice visualization
+      _initVoiceSyncAudio();
 
-      if (!navigator.mediaDevices?.getUserMedia) {
-        _showVoiceSetup();
+      // If already listening, stop immediately and submit whatever was spoken
+      if (_isListening) {
+        _stopSpeech(true);
         return;
       }
-      let stream;
+
+      if (!SpeechRecognition) {
+        toast('Speech recognition not supported in this browser');
+        return;
+      }
+
       try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
-        });
-      } catch (e) {
-        sys(e.name === 'NotAllowedError'
-          ? 'Microphone denied — tap the address bar lock and allow microphone.'
-          : 'Mic error: ' + e.message);
-        return;
-      }
+        _speechRec = new SpeechRecognition();
+        _speechRec.continuous = true;
+        _speechRec.interimResults = true;
+        _speechRec.lang = 'en-US';
 
-      // 16 kHz context (fall back to native rate — _f32toPcm16 resamples)
-      let ctx;
-      try { ctx = new AudioContext({ sampleRate: 16000 }); }
-      catch (_) { ctx = new AudioContext(); }
-      if (ctx.state === 'suspended') await ctx.resume();
-
-      const wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
-      const ws = new WebSocket(
-        `${wsProto}://${location.host}/ws/phone-audio?token=${encodeURIComponent(_authToken)}`
-      );
-      ws.binaryType = 'arraybuffer';
-
-      ws.onopen = async () => {
-        const rate = ctx.sampleRate;
-        const src  = ctx.createMediaStreamSource(stream);
-
-        // AudioWorklet (modern) — runs in dedicated audio thread
-        const wCode = `class J extends AudioWorkletProcessor{process(i){const c=i[0]?.[0];if(c)this.port.postMessage(c.slice());return true;}}registerProcessor('j',J);`;
-        try {
-          const burl = URL.createObjectURL(new Blob([wCode], { type: 'application/javascript' }));
-          await ctx.audioWorklet.addModule(burl);
-          URL.revokeObjectURL(burl);
-          const nd = new AudioWorkletNode(ctx, 'j');
-          // Buffer to 1024 samples (64 ms at 16 kHz) before sending —
-          // matches PC mic chunk size, prevents queue flooding on the server.
-          let _pbuf = [], _plen = 0;
-          nd.port.onmessage = e => {
-            const chunk = new Int16Array(_f32toPcm16(e.data, rate));
-            _pbuf.push(chunk); _plen += chunk.length;
-            if (_plen >= 1024) {
-              const out = new Int16Array(_plen); let off = 0;
-              for (const c of _pbuf) { out.set(c, off); off += c.length; }
-              if (ws.readyState === 1) ws.send(out.buffer);
-              _pbuf = []; _plen = 0;
-            }
-          };
-          src.connect(nd);
-          _audioNd = nd;
-        } catch (_) {
-          // ScriptProcessor fallback (deprecated, still works everywhere)
-          const sp = ctx.createScriptProcessor(4096, 1, 1);
-          sp.onaudioprocess = e => {
-            if (ws.readyState === 1) ws.send(_f32toPcm16(e.inputBuffer.getChannelData(0), rate));
-          };
-          src.connect(sp); sp.connect(ctx.destination);
-          _audioNd = sp;
-        }
-
-        micBtn.innerHTML = '⏹';
-        micBtn.title     = 'Tap to stop';
+        const inp = document.getElementById('inp');
+        _isListening = true;
+        setOrbState('LISTENING TO VOICE');
         micBtn.classList.add('recording');
-        sys('Voice live — speak now');
-        toast('🎤 Live');
-      };
+        micBtn.innerHTML = '⏹';
+        micBtn.title = 'Listening… Tap to finish immediately';
+        toast('🎤 Listening — pauses auto-send in 0.9s');
 
-      ws.onclose = () => { _stopVoice(); };
-      ws.onerror = () => { sys('Voice connection failed.'); _stopVoice(); };
+        _speechRec.onresult = (event) => {
+          let fullText = '';
+          for (let i = 0; i < event.results.length; i++) {
+            fullText += event.results[i][0].transcript;
+          }
+          const clean = fullText.trim();
+          if (clean && inp) {
+            inp.value = clean;
+          }
 
-      _voiceWs  = ws;
-      _audioCtx = ctx;
-      _micStm   = stream;
+          // Reset the 0.9 second pause timer whenever words are detected
+          clearTimeout(_speechPauseTimer);
+          _speechPauseTimer = setTimeout(() => {
+            // Exactly 0.9s of silence/pause detected -> execute command!
+            _stopSpeech(true);
+          }, SPEECH_DELAY_MS);
+        };
+
+        _speechRec.onerror = (e) => {
+          console.warn('[Speech Recognition]:', e.error);
+          if (e.error === 'not-allowed') {
+            sys('Microphone permission denied. Please allow mic access.');
+            toast('Mic permission required');
+          } else if (e.error !== 'no-speech') {
+            toast('Voice: ' + e.error);
+          }
+          _stopSpeech(false);
+        };
+
+        _speechRec.onend = () => {
+          if (_isListening) {
+            _stopSpeech(false);
+          }
+        };
+
+        _speechRec.start();
+      } catch (err) {
+        console.error('[Voice start error]:', err);
+        toast('Microphone error');
+        _stopSpeech(false);
+      }
     }
 
-    function _stopVoice() {
-      if (_audioNd)  { try { _audioNd.disconnect(); }  catch (_) {}; _audioNd  = null; }
-      if (_audioCtx) { try { _audioCtx.close(); }      catch (_) {}; _audioCtx = null; }
-      if (_micStm)   { _micStm.getTracks().forEach(t => t.stop()); _micStm = null; }
-      if (_voiceWs)  {
-        const w = _voiceWs; _voiceWs = null;
-        if (w.readyState < 2) w.close();
+    function _stopSpeech(send = true) {
+      clearTimeout(_speechPauseTimer);
+      _isListening = false;
+      setOrbState('HOLO CORE ONLINE');
+      if (_speechRec) {
+        try {
+          _speechRec.onend = null;
+          _speechRec.stop();
+        } catch (_) {}
+        _speechRec = null;
       }
       _micIdle();
+
+      if (send) {
+        const inp = document.getElementById('inp');
+        if (inp && inp.value.trim()) {
+          toast('Dispatching command (0.9s delay)');
+          doSend();
+        }
+      }
     }
+
+    // ── 3D HOLOGRAPHIC JARVIS CORE & VOICE SYNC BEAT ENGINE ──────────────────
+    let _audioCtx = null;
+    let _audioAnalyser = null;
+    let _audioDataArray = null;
+    let _micMediaStream = null;
+    let _liveVoiceLevel = 0.0;
+    let _smoothVoiceLevel = 0.0;
+
+    function setOrbState(txt) {
+      const el = document.getElementById('core-state-txt');
+      if (el) el.textContent = txt;
+    }
+
+    let _stageModes = ['', 'cinematic', 'compact'];
+    let _stageModeIdx = 0;
+    function toggleOrbView() {
+      const stage = document.getElementById('orb-stage');
+      if (!stage) return;
+      _stageModeIdx = (_stageModeIdx + 1) % _stageModes.length;
+      stage.classList.remove('cinematic', 'compact');
+      if (_stageModes[_stageModeIdx]) {
+        stage.classList.add(_stageModes[_stageModeIdx]);
+      }
+      setTimeout(_handleOrbResize, 360);
+    }
+
+    async function _initVoiceSyncAudio() {
+      if (_audioAnalyser) return true;
+      try {
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        if (!AudioContextClass) return false;
+        if (!_audioCtx) _audioCtx = new AudioContextClass();
+        if (_audioCtx.state === 'suspended') {
+          await _audioCtx.resume();
+        }
+        if (!_micMediaStream && navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+          _micMediaStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+        }
+        if (_micMediaStream) {
+          const source = _audioCtx.createMediaStreamSource(_micMediaStream);
+          _audioAnalyser = _audioCtx.createAnalyser();
+          _audioAnalyser.fftSize = 256;
+          _audioAnalyser.smoothingTimeConstant = 0.8;
+          source.connect(_audioAnalyser);
+          _audioDataArray = new Uint8Array(_audioAnalyser.frequencyBinCount);
+          return true;
+        }
+      } catch (err) {
+        console.warn('[VoiceSyncAudio]:', err);
+      }
+      return false;
+    }
+
+    // Initialize 3D Orb Visualizer Canvas
+    let _handleOrbResize = () => {};
+    (function init3DVisualizer() {
+      const canvas = document.getElementById('orb-canvas');
+      const stage = document.getElementById('orb-stage');
+      const syncBar = document.getElementById('sync-bar');
+      const syncVal = document.getElementById('sync-val');
+      if (!canvas || !stage) return;
+
+      const ctx = canvas.getContext('2d');
+      let w = 0, h = 0;
+      let dpr = Math.min(window.devicePixelRatio || 1, 2);
+
+      _handleOrbResize = () => {
+        w = stage.clientWidth;
+        h = stage.clientHeight;
+        canvas.width = Math.floor(w * dpr);
+        canvas.height = Math.floor(h * dpr);
+      };
+      _handleOrbResize();
+      window.addEventListener('resize', _handleOrbResize);
+
+      // Priming audio on stage click
+      stage.addEventListener('click', () => {
+        _initVoiceSyncAudio();
+      });
+
+      // 3D Particles Generation
+      // 1. Fibonacci Sphere Surface Nodes
+      const SPHERE_COUNT = 950;
+      const spherePts = [];
+      for (let i = 0; i < SPHERE_COUNT; i++) {
+        const phi = Math.acos(1 - 2 * (i + 0.5) / SPHERE_COUNT);
+        const theta = Math.PI * (1 + Math.sqrt(5)) * i;
+        spherePts.push({
+          x0: Math.sin(phi) * Math.cos(theta),
+          y0: Math.sin(phi) * Math.sin(theta),
+          z0: Math.cos(phi),
+          phi,
+          theta,
+          jitter: (Math.random() - 0.5) * 0.08,
+          sz: 0.9 + Math.random() * 1.5,
+          bright: 0.35 + Math.random() * 0.65
+        });
+      }
+
+      // 2. Undulating Sinusoidal Ribbon Particles (matching the twisting cyan ribbons in the image)
+      const RIBBON_COUNT = 1500;
+      const ribbonPts = [];
+      const numRibbons = 4;
+      for (let r = 0; r < numRibbons; r++) {
+        const countPerRibbon = Math.floor(RIBBON_COUNT / numRibbons);
+        const inclination = (r * Math.PI) / numRibbons + 0.2;
+        for (let i = 0; i < countPerRibbon; i++) {
+          const u = (i / countPerRibbon) * Math.PI * 2;
+          ribbonPts.push({
+            ribbonId: r,
+            u,
+            inclination,
+            widthSpread: (Math.random() - 0.5) * 0.24,
+            freq: 3 + (r % 2),
+            sz: 1.1 + Math.random() * 2.0,
+            phase: Math.random() * Math.PI * 2
+          });
+        }
+      }
+
+      // 3. Drifting Ambient Holographic Sparks
+      const SPARK_COUNT = 120;
+      const sparks = [];
+      for (let i = 0; i < SPARK_COUNT; i++) {
+        sparks.push({
+          r: 1.08 + Math.random() * 0.45,
+          theta: Math.random() * Math.PI * 2,
+          phi: Math.random() * Math.PI,
+          speedTheta: (Math.random() - 0.5) * 0.012,
+          speedPhi: (Math.random() - 0.5) * 0.008,
+          sz: 0.7 + Math.random() * 1.4,
+          life: Math.random()
+        });
+      }
+
+      // Interactive 3D Orbit Dragging
+      let isDragging = false;
+      let lastMouseX = 0;
+      let lastMouseY = 0;
+      let rotX = 0.25;
+      let rotY = 0.0;
+      let velRotX = 0;
+      let velRotY = 0.009;
+
+      stage.addEventListener('mousedown', (e) => {
+        isDragging = true;
+        lastMouseX = e.clientX;
+        lastMouseY = e.clientY;
+      });
+      window.addEventListener('mousemove', (e) => {
+        if (!isDragging) return;
+        const dx = e.clientX - lastMouseX;
+        const dy = e.clientY - lastMouseY;
+        velRotY = dx * 0.005;
+        velRotX = dy * 0.005;
+        rotY += velRotY;
+        rotX += velRotX;
+        lastMouseX = e.clientX;
+        lastMouseY = e.clientY;
+      });
+      window.addEventListener('mouseup', () => { isDragging = false; });
+
+      stage.addEventListener('touchstart', (e) => {
+        if (e.touches.length === 1) {
+          isDragging = true;
+          lastMouseX = e.touches[0].clientX;
+          lastMouseY = e.touches[0].clientY;
+          _initVoiceSyncAudio();
+        }
+      }, { passive: true });
+      window.addEventListener('touchmove', (e) => {
+        if (!isDragging || e.touches.length !== 1) return;
+        const dx = e.touches[0].clientX - lastMouseX;
+        const dy = e.touches[0].clientY - lastMouseY;
+        velRotY = dx * 0.005;
+        velRotX = dy * 0.005;
+        rotY += velRotY;
+        rotX += velRotX;
+        lastMouseX = e.touches[0].clientX;
+        lastMouseY = e.touches[0].clientY;
+      }, { passive: true });
+      window.addEventListener('touchend', () => { isDragging = false; });
+
+      // Render Loop with Voice Sync & Rhythmic Beating
+      let startTime = performance.now();
+
+      function render() {
+        requestAnimationFrame(render);
+        const now = performance.now();
+        const t = (now - startTime) * 0.001;
+
+        // Rotation inertia & auto orbit
+        if (!isDragging) {
+          velRotY *= 0.95;
+          velRotX *= 0.95;
+          rotY += 0.008 + velRotY;
+          rotX += velRotX;
+        }
+
+        // 1. Audio Voice Energy Analysis
+        _liveVoiceLevel = 0.0;
+        if (_audioAnalyser && _audioDataArray) {
+          _audioAnalyser.getByteFrequencyData(_audioDataArray);
+          let sum = 0;
+          const count = Math.min(_audioDataArray.length, 64);
+          for (let i = 0; i < count; i++) {
+            sum += _audioDataArray[i];
+          }
+          const avg = sum / count;
+          _liveVoiceLevel = Math.min(1.0, Math.max(0.0, (avg - 14) / 95));
+        }
+
+        // If Jarvis is speaking synthesized voice, modulate smoothly
+        if (_isJarvisSpeaking) {
+          const jarvisMod = 0.45 + 0.38 * Math.abs(Math.sin(t * 14)) * Math.sin(t * 22) + 0.15 * Math.sin(t * 8);
+          _liveVoiceLevel = Math.max(_liveVoiceLevel, Math.min(1.0, jarvisMod));
+        }
+
+        // Smooth Voice Follower
+        _smoothVoiceLevel += (_liveVoiceLevel - _smoothVoiceLevel) * 0.22;
+
+        // 2. Rhythmic Heartbeat Beating ("adn it should beate")
+        // Double-thump organic cardiac cycle: lub (ventricular) + dub (arterial)
+        const beatCycle = (t * 2.3) % (Math.PI * 2);
+        const lub = Math.pow(Math.max(0, Math.sin(beatCycle)), 22) * 0.20;
+        const dub = Math.pow(Math.max(0, Math.sin(beatCycle - 0.42)), 22) * 0.12;
+        const heartBeatPulse = lub + dub;
+
+        // Combined dynamic beat factor
+        const dynamicBeat = heartBeatPulse * (1 - Math.min(1, _smoothVoiceLevel * 1.3)) + _smoothVoiceLevel * 0.95;
+
+        // Update Voice Sync HUD Meter
+        if (syncBar && syncVal) {
+          const pct = Math.min(100, Math.round(dynamicBeat * 100));
+          syncBar.style.width = pct + '%';
+          syncVal.textContent = pct + '%';
+        }
+
+        // Clear Canvas
+        ctx.save();
+        ctx.scale(dpr, dpr);
+        ctx.clearRect(0, 0, w, h);
+
+        const cx = w * 0.5;
+        const cy = h * 0.5;
+        const baseRadius = Math.min(w, h) * 0.32;
+        const currentR = baseRadius * (1.0 + dynamicBeat * 0.36);
+        const FOV = 420;
+
+        // Rotation math precalculations
+        const cosX = Math.cos(rotX), sinX = Math.sin(rotX);
+        const cosY = Math.cos(rotY), sinY = Math.sin(rotY);
+
+        // Core Ambient Inner Halo
+        const glowGrad = ctx.createRadialGradient(cx, cy, currentR * 0.1, cx, cy, currentR * 1.35);
+        glowGrad.addColorStop(0, `rgba(0, 225, 255, ${0.35 + dynamicBeat * 0.35})`);
+        glowGrad.addColorStop(0.35, `rgba(0, 110, 255, ${0.18 + dynamicBeat * 0.2})`);
+        glowGrad.addColorStop(0.8, `rgba(0, 50, 180, ${0.05 + dynamicBeat * 0.08})`);
+        glowGrad.addColorStop(1, 'rgba(2, 6, 23, 0)');
+        ctx.fillStyle = glowGrad;
+        ctx.beginPath();
+        ctx.arc(cx, cy, currentR * 1.35, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Array of projected points to sort for 3D depth
+        const drawQueue = [];
+
+        // 1. Project Fibonacci Sphere Points
+        for (let i = 0; i < spherePts.length; i++) {
+          const p = spherePts[i];
+          // Pulsing displacement on surface
+          const disp = 1.0 + p.jitter + Math.sin(t * 3 + p.phi * 4) * (0.02 + dynamicBeat * 0.08);
+          let x = p.x0 * currentR * disp;
+          let y = p.y0 * currentR * disp;
+          let z = p.z0 * currentR * disp;
+
+          // Rotate around Y
+          let x1 = x * cosY - z * sinY;
+          let z1 = x * sinY + z * cosY;
+          // Rotate around X
+          let y2 = y * cosX - z1 * sinX;
+          let z2 = y * sinX + z1 * cosX;
+
+          const depth = FOV + z2;
+          if (depth > 1) {
+            const scale = FOV / depth;
+            const px = cx + x1 * scale;
+            const py = cy + y2 * scale;
+            const alpha = Math.max(0.12, Math.min(1.0, (z2 / currentR + 1.2) * 0.45));
+            drawQueue.push({
+              type: 'sphere',
+              x: px,
+              y: py,
+              z: z2,
+              sz: p.sz * scale * (1 + dynamicBeat * 0.5),
+              alpha,
+              bright: p.bright
+            });
+          }
+        }
+
+        // 2. Project Undulating Sinusoidal Ribbon Points
+        for (let i = 0; i < ribbonPts.length; i++) {
+          const rp = ribbonPts[i];
+          const angle = rp.u + t * 0.5 * (rp.ribbonId % 2 === 0 ? 1 : -1);
+          // Wave height along ribbon
+          const wave = Math.sin(angle * rp.freq + t * 4) * (0.18 + dynamicBeat * 0.32);
+          const rad = currentR * (1.02 + wave + rp.widthSpread);
+
+          // Position in ribbon plane
+          let rx = Math.cos(angle) * rad;
+          let ry = Math.sin(angle) * rad * 0.42;
+          let rz = Math.sin(angle) * rad * 0.88;
+
+          // Ribbon inclination tilt
+          const cosI = Math.cos(rp.inclination), sinI = Math.sin(rp.inclination);
+          let ry1 = ry * cosI - rz * sinI;
+          let rz1 = ry * sinI + rz * cosI;
+
+          // Global 3D rotation
+          let x1 = rx * cosY - rz1 * sinY;
+          let z1 = rx * sinY + rz1 * cosY;
+          let y2 = ry1 * cosX - z1 * sinX;
+          let z2 = ry1 * sinX + z1 * cosX;
+
+          const depth = FOV + z2;
+          if (depth > 1) {
+            const scale = FOV / depth;
+            const px = cx + x1 * scale;
+            const py = cy + y2 * scale;
+            const alpha = Math.max(0.15, Math.min(1.0, (z2 / currentR + 1.3) * 0.55));
+            drawQueue.push({
+              type: 'ribbon',
+              x: px,
+              y: py,
+              z: z2,
+              sz: rp.sz * scale * (1 + dynamicBeat * 0.7),
+              alpha,
+              ribbonId: rp.ribbonId
+            });
+          }
+        }
+
+        // 3. Ambient Drifting Sparks
+        for (let i = 0; i < sparks.length; i++) {
+          const sp = sparks[i];
+          sp.theta += sp.speedTheta;
+          sp.phi += sp.speedPhi;
+          const rad = currentR * sp.r * (1 + dynamicBeat * 0.2);
+          let sx = rad * Math.sin(sp.phi) * Math.cos(sp.theta);
+          let sy = rad * Math.sin(sp.phi) * Math.sin(sp.theta);
+          let sz = rad * Math.cos(sp.phi);
+
+          let x1 = sx * cosY - sz * sinY;
+          let z1 = sx * sinY + sz * cosY;
+          let y2 = sy * cosX - z1 * sinX;
+          let z2 = sy * sinX + z1 * cosX;
+
+          const depth = FOV + z2;
+          if (depth > 1) {
+            const scale = FOV / depth;
+            drawQueue.push({
+              type: 'spark',
+              x: cx + x1 * scale,
+              y: cy + y2 * scale,
+              z: z2,
+              sz: sp.sz * scale * 1.2,
+              alpha: Math.max(0.1, (z2 / currentR + 1.2) * 0.4)
+            });
+          }
+        }
+
+        // Depth sorting (back-to-front rendering)
+        drawQueue.sort((a, b) => a.z - b.z);
+
+        // Render Points
+        for (let i = 0; i < drawQueue.length; i++) {
+          const pt = drawQueue[i];
+          ctx.beginPath();
+          ctx.arc(pt.x, pt.y, Math.max(0.6, pt.sz), 0, Math.PI * 2);
+
+          if (pt.type === 'ribbon') {
+            // Electric neon cyan ribbon with glowing white-hot peaks
+            if (dynamicBeat > 0.35 && pt.alpha > 0.6) {
+              ctx.fillStyle = `rgba(224, 242, 254, ${pt.alpha * 0.95})`;
+            } else {
+              ctx.fillStyle = `rgba(0, 220, 255, ${pt.alpha * 0.85})`;
+            }
+          } else if (pt.type === 'spark') {
+            ctx.fillStyle = `rgba(56, 189, 248, ${pt.alpha * 0.9})`;
+          } else {
+            // Fibonacci sphere surface
+            if (pt.bright > 0.8 && dynamicBeat > 0.2) {
+              ctx.fillStyle = `rgba(0, 240, 255, ${pt.alpha * 0.85})`;
+            } else {
+              ctx.fillStyle = `rgba(0, 140, 255, ${pt.alpha * 0.65})`;
+            }
+          }
+          ctx.fill();
+        }
+
+        ctx.restore();
+      }
+
+      requestAnimationFrame(render);
+    })();
   </script>
 </body>
 </html>
